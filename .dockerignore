@@ -1,0 +1,36 @@
+# Files NOT to copy into the Docker build context.
+# Render builds from your git repo (so .env is already gitignored), but this
+# file protects against accidentally building locally where .env exists, AND
+# trims the image by skipping never-needed files.
+
+# Local env — secrets must come from Render env vars at runtime, not from
+# a baked-in file. Without this, Prisma can read an .env baked into the
+# image and override DATABASE_URL with localhost values.
+.env
+.env.*
+!.env.example
+
+# Build artifacts and deps — re-installed fresh inside the image.
+node_modules
+dist
+build
+.next
+out
+coverage
+
+# Git / VCS
+.git
+.gitignore
+
+# Logs and OS / IDE noise
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode
+.idea
+*.swp
+
+# Misc
+*.tsbuildinfo
+README.md
