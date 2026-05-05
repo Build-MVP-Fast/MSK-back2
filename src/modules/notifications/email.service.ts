@@ -15,9 +15,15 @@ export class EmailService {
   ) {
     const host = this.config.get<string>('SMTP_HOST');
     if (host) {
+      const port = this.config.get<number>('SMTP_PORT', 587);
       this.transporter = nodemailer.createTransport({
         host,
-        port: this.config.get<number>('SMTP_PORT', 587),
+        port,
+        // Port 465 requires implicit TLS from connection start. Other ports
+        // (587, 2525) use STARTTLS upgrade which Nodemailer handles when
+        // `secure` is false. Setting it explicitly so either works without
+        // surprises across providers (Resend / SendGrid / Mailgun / etc.).
+        secure: port === 465,
         auth: {
           user: this.config.get<string>('SMTP_USER'),
           pass: this.config.get<string>('SMTP_PASS'),
