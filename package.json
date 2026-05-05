@@ -20,6 +20,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:clean-photos": "ts-node prisma/scripts/clean-bad-photo-urls.ts",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down"
   },
