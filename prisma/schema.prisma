@@ -1,0 +1,1660 @@
+// ============================================================================
+//  MSK Platform — Prisma Schema
+// ----------------------------------------------------------------------------
+//  Single source of truth for the unified backend that powers:
+//    1. Mobile app (msk)        — guests, receptionists, admins, super-users
+//    2. Website (msk-web)       — public marketing + booking + careers
+//    3. Admin dashboard         — property/room/booking management
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+//  ENUMS
+// ============================================================================
+
+enum UserRole {
+  GUEST              // App guest (PIN-based auth)
+  WEB_GUEST          // Website guest (email/password auth)
+  RECEPTIONIST
+  STAFF
+  ADMIN
+  SUPER_USER
+  SUPPLIER
+}
+
+enum AuthProvider {
+  PIN                // App: 4–6 digit PIN
+  PASSWORD           // Website: email + password
+  OTP_ONLY
+  GOOGLE
+  APPLE
+}
+
+enum OtpPurpose {
+  SIGN_UP
+  LOGIN
+  RESET_PIN
+  RESET_PASSWORD
+  VERIFY_EMAIL
+  VERIFY_PHONE
+  RESERVATION_ENQUIRY
+}
+
+enum CompanyStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum PropertyStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+  OUT_OF_SERVICE
+  CLEANING
+}
+
+enum RatePlanType {
+  STANDARD
+  WEEKEND
+  HOLIDAY
+  PROMOTIONAL
+  LONG_STAY
+  CUSTOM
+}
+
+enum AvailabilityBlockReason {
+  BOOKING
+  MAINTENANCE
+  HOLD
+  OWNER_USE
+  EXTERNAL_CHANNEL
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  NO_SHOW
+}
+
+enum BookingSource {
+  WEBSITE
+  APP
+  ADMIN
+  AIRBNB
+  BOOKING_COM
+  EXPEDIA
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CARD
+  CASH
+  BANK_TRANSFER
+  STRIPE
+  PAYPAL
+  OTHER
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  PARTIALLY_PAID
+  OVERDUE
+  VOIDED
+}
+
+enum OrderStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
+}
+
+enum InventoryMovementType {
+  IN
+  OUT
+  TRANSFER
+  ADJUSTMENT
+  ALLOCATION
+  RETURN
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum RequestStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CANCELLED
+}
+
+enum RequestCategory {
+  HOUSEKEEPING
+  MAINTENANCE
+  ROOM_SERVICE
+  CONCIERGE
+  TRANSPORT
+  OTHER
+}
+
+enum ChatType {
+  DIRECT             // 1-1 between two users
+  GROUP              // arbitrary group
+  DEPARTMENT         // departmental channel
+  SUPPLIER           // staff <-> supplier
+  STAFF_GUEST        // guest <-> staff
+  CATEGORY           // categorized guest chat (e.g. "Housekeeping")
+}
+
+enum ChatMessageType {
+  TEXT
+  IMAGE
+  FILE
+  AUDIO
+  SYSTEM
+}
+
+enum NotificationChannel {
+  PUSH
+  IN_APP
+  EMAIL
+  SMS
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum DevicePlatform {
+  IOS
+  ANDROID
+  WEB
+}
+
+enum GeofenceEventType {
+  ENTER
+  EXIT
+  DWELL
+}
+
+enum AccessGrantStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum QrCodeTarget {
+  PROPERTY
+  ROOM
+  HANDBOOK_ITEM
+  AMENITY
+  STAFF
+  CUSTOM
+}
+
+enum ReviewSubject {
+  STAFF
+  OBJECT
+  PROPERTY
+  ROOM
+}
+
+enum CostType {
+  STAFF
+  MATERIAL
+  UTILITY
+  MARKETING
+  MAINTENANCE
+  OTHER
+}
+
+enum WizardKind {
+  GUEST
+  ADMIN
+  RECEPTIONIST
+}
+
+enum JobApplicationStatus {
+  RECEIVED
+  REVIEWING
+  INTERVIEW
+  OFFER
+  REJECTED
+  HIRED
+  WITHDRAWN
+}
+
+enum InquiryStatus {
+  NEW
+  CONTACTED
+  CONVERTED
+  CLOSED
+}
+
+enum FileKind {
+  PROPERTY_PHOTO
+  ROOM_PHOTO
+  USER_AVATAR
+  CV
+  CHAT_ATTACHMENT
+  REVIEW_PHOTO
+  AMENITY_ICON
+  HANDBOOK_IMAGE
+  INVOICE_PDF
+  OTHER
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  ACCESS
+  EXPORT
+}
+
+// ============================================================================
+//  IDENTITY & AUTH
+// ============================================================================
+
+model User {
+  id            String       @id @default(uuid())
+  email         String?      @unique
+  phone         String?      @unique
+  fullName      String?
+  firstName     String?
+  lastName      String?
+  avatarUrl     String?
+  role          UserRole
+  primaryRole   UserRole?    // when user has multiple roles
+  authProvider  AuthProvider @default(PASSWORD)
+  emailVerified Boolean      @default(false)
+  phoneVerified Boolean      @default(false)
+  isActive      Boolean      @default(true)
+  locale        String?      @default("en")
+  timezone      String?      @default("UTC")
+  metadata      Json?
+  lastLoginAt   DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  deletedAt     DateTime?
+
+  // Org membership
+  companyId   String?
+  company     Company?    @relation(fields: [companyId], references: [id])
+  departments DepartmentMember[]
+
+  // Profiles (1-1 by role)
+  guestProfile      GuestProfile?
+  staffProfile      StaffProfile?
+  supplierProfile   SupplierProfile?
+
+  // Auth
+  credentials      UserCredential[]
+  refreshTokens    RefreshToken[]
+  otpCodes         OtpCode[]
+  passwordResets   PasswordResetToken[]
+  devices          Device[]
+  notificationTokens NotificationToken[]
+
+  // RBAC
+  userRoles UserRoleAssignment[]
+
+  // Activity
+  bookingsAsGuest    Booking[]            @relation("BookingGuest")
+  bookingsCreated    Booking[]            @relation("BookingCreatedBy")
+  invoicesIssued     Invoice[]            @relation("InvoiceIssuedBy")
+  ordersCreated      Order[]              @relation("OrderCreatedBy")
+  tasksAssignedTo    TaskAssignment[]
+  tasksCreated       TaskItem[]           @relation("TaskCreatedBy")
+  chatMemberships    ChatMember[]
+  messagesSent       ChatMessage[]
+  notifications      Notification[]
+  scheduleEntries    ScheduleEntry[]
+  guestRequests      GuestRequest[]       @relation("RequestedBy")
+  requestsAssigned   GuestRequest[]       @relation("RequestAssignedTo")
+  geofenceEvents     GeofenceEvent[]
+  accessGrants       AccessGrant[]        @relation("AccessGrantUser")
+  accessGrantsCreated AccessGrant[]       @relation("AccessGrantCreatedBy")
+  qrScans            QrScan[]
+  reviewsAuthored    Review[]             @relation("ReviewAuthor")
+  reviewsAbout       Review[]             @relation("ReviewSubjectStaff")
+  costsRecorded      Cost[]               @relation("CostCreatedBy")
+  revenueEntries     RevenueEntry[]
+  wizardStates       WizardState[]
+  inventoryAllocations InventoryAllocation[]
+  auditLogs          AuditLog[]
+  jobApplications    JobApplication[]
+  partnerInquiries   PartnerInquiry[]
+  contactInquiries   ContactInquiry[]
+  newsletterSubscriptions NewsletterSubscription[]
+
+  @@index([role])
+  @@index([companyId])
+  @@index([email])
+  @@index([phone])
+}
+
+model UserCredential {
+  id           String        @id @default(uuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider     AuthProvider
+  secretHash   String        // hashed PIN or password
+  metadata     Json?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([userId, provider])
+}
+
+model RefreshToken {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String    @unique
+  deviceId    String?
+  device      Device?   @relation(fields: [deviceId], references: [id])
+  ipAddress   String?
+  userAgent   String?
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model OtpCode {
+  id          String     @id @default(uuid())
+  userId      String?
+  user        User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel     String     // "email" | "sms"
+  destination String     // email or phone
+  purpose     OtpPurpose
+  codeHash    String
+  attempts    Int        @default(0)
+  consumedAt  DateTime?
+  expiresAt   DateTime
+  createdAt   DateTime   @default(now())
+
+  @@index([userId, purpose])
+  @@index([destination, purpose])
+}
+
+model PasswordResetToken {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model Device {
+  id            String         @id @default(uuid())
+  userId        String?
+  user          User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform      DevicePlatform
+  deviceModel   String?
+  deviceName    String?
+  osVersion     String?
+  appVersion    String?
+  fingerprint   String?        @unique
+  lastSeenAt    DateTime?
+  createdAt     DateTime       @default(now())
+
+  refreshTokens     RefreshToken[]
+  notificationTokens NotificationToken[]
+}
+
+// ============================================================================
+//  RBAC  (fine-grained permissions on top of UserRole)
+// ============================================================================
+
+model RoleDefinition {
+  id          String   @id @default(uuid())
+  key         String   @unique          // e.g. "admin", "receptionist"
+  name        String
+  description String?
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  permissions     RolePermission[]
+  userAssignments UserRoleAssignment[]
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  key         String   @unique          // e.g. "property.create", "booking.manage"
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  role         RoleDefinition @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission     @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserRoleAssignment {
+  id        String         @id @default(uuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId    String
+  role      RoleDefinition @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  scopeType String?        // "company" | "property" | "department" | null (global)
+  scopeId   String?
+  createdAt DateTime       @default(now())
+
+  @@unique([userId, roleId, scopeType, scopeId])
+}
+
+// ============================================================================
+//  ORGANIZATION
+// ============================================================================
+
+model Company {
+  id          String        @id @default(uuid())
+  name        String
+  slug        String        @unique
+  email       String?
+  phone       String?
+  address     String?
+  city        String?
+  country     String?
+  taxId       String?
+  logoUrl     String?
+  status      CompanyStatus @default(ACTIVE)
+  metadata    Json?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  users       User[]
+  departments Department[]
+  properties  Property[]
+  costs       Cost[]
+  revenueEntries RevenueEntry[]
+}
+
+model Department {
+  id        String   @id @default(uuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  slug      String?
+  description String?
+  parentId  String?
+  parent    Department?  @relation("DepartmentParent", fields: [parentId], references: [id])
+  children  Department[] @relation("DepartmentParent")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members   DepartmentMember[]
+  chats     Chat[]   @relation("DepartmentChats")
+  tasks     TaskItem[]
+
+  @@unique([companyId, slug])
+}
+
+model DepartmentMember {
+  id           String     @id @default(uuid())
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  positionTitle String?
+  isHead       Boolean    @default(false)
+  joinedAt     DateTime   @default(now())
+
+  @@unique([departmentId, userId])
+}
+
+model GuestProfile {
+  id              String  @id @default(uuid())
+  userId          String  @unique
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loyaltyNumber   String? @unique
+  preferences     Json?
+  documentNumber  String?     // ID / passport
+  documentType    String?
+  documentImageUrl String?
+  nationality     String?
+  dateOfBirth     DateTime?
+  emergencyContact Json?
+
+  additionalGuests AdditionalGuest[]
+}
+
+model AdditionalGuest {
+  id           String       @id @default(uuid())
+  hostProfileId String
+  hostProfile  GuestProfile @relation(fields: [hostProfileId], references: [id], onDelete: Cascade)
+  fullName     String
+  email        String?
+  phone        String?
+  relation     String?
+  documentNumber String?
+  dateOfBirth   DateTime?
+  createdAt    DateTime     @default(now())
+}
+
+model StaffProfile {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employeeCode String?  @unique
+  position     String?
+  hiredAt      DateTime?
+  hourlyRate   Decimal? @db.Decimal(10, 2)
+  monthlySalary Decimal? @db.Decimal(12, 2)
+  emergencyContact Json?
+}
+
+model SupplierProfile {
+  id          String  @id @default(uuid())
+  userId      String  @unique
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName String
+  taxId       String?
+  contactName String?
+  category    String?
+  rating      Float?
+}
+
+// ============================================================================
+//  PROPERTY / PMS
+// ============================================================================
+
+model Property {
+  id              String         @id @default(uuid())
+  companyId       String
+  company         Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name            String
+  slug            String         @unique
+  description     String?
+  shortDescription String?
+  status          PropertyStatus @default(DRAFT)
+  email           String?
+  phone           String?
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  region          String?
+  country         String?
+  postalCode      String?
+  latitude        Float?
+  longitude       Float?
+  timezone        String?        @default("UTC")
+  defaultCurrency String?        @default("USD")
+  checkInTime     String?        @default("15:00")
+  checkOutTime    String?        @default("11:00")
+  starRating      Float?
+  metadata        Json?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  publishedAt     DateTime?
+  archivedAt      DateTime?
+
+  photos          PropertyPhoto[]
+  amenities       PropertyAmenity[]
+  roomTypes       RoomType[]
+  rooms           Room[]
+  bookings        Booking[]
+  ratePlans       RatePlan[]
+  availability    AvailabilityCalendarEntry[]
+  availabilityBlocks AvailabilityBlock[]
+  rules           RuleSection[]
+  handbooks       HandbookCategory[]
+  reviews         Review[]
+  geofences       Geofence[]
+  qrCodes         QrCode[]
+  channels        ChannelConnection[]
+  pricingRules    DynamicPricingRule[]
+
+  @@index([companyId])
+  @@index([city, country])
+}
+
+model PropertyPhoto {
+  id         String   @id @default(uuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  url        String
+  thumbUrl   String?
+  storageKey String?
+  caption    String?
+  altText    String?
+  ordering   Int      @default(0)
+  isCover    Boolean  @default(false)
+  width      Int?
+  height     Int?
+  createdAt  DateTime @default(now())
+
+  @@index([propertyId, ordering])
+}
+
+model RoomType {
+  id           String  @id @default(uuid())
+  propertyId   String
+  property     Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name         String
+  slug         String?
+  description  String?
+  basePrice    Decimal  @db.Decimal(12, 2)
+  currency     String   @default("USD")
+  maxOccupancy Int      @default(2)
+  maxAdults    Int      @default(2)
+  maxChildren  Int      @default(0)
+  bedConfig    String?  // e.g. "1 King", "2 Queen"
+  size         Float?   // square meters
+  ordering     Int      @default(0)
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  rooms     Room[]
+  photos    RoomPhoto[]
+  amenities RoomAmenity[]
+  ratePlans RatePlan[]
+  availability AvailabilityCalendarEntry[]
+
+  @@unique([propertyId, slug])
+  @@index([propertyId])
+}
+
+model Room {
+  id          String     @id @default(uuid())
+  propertyId  String
+  property    Property   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomTypeId  String
+  roomType    RoomType   @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  number      String     // physical room number, e.g. "204"
+  floor       String?
+  status      RoomStatus @default(AVAILABLE)
+  notes       String?
+  metadata    Json?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  photos       RoomPhoto[]
+  bookings     Booking[]
+  availability AvailabilityCalendarEntry[]
+  availabilityBlocks AvailabilityBlock[]
+  inventoryAllocations InventoryAllocation[]
+  qrCodes      QrCode[]
+
+  @@unique([propertyId, number])
+  @@index([propertyId, roomTypeId])
+}
+
+model RoomPhoto {
+  id         String   @id @default(uuid())
+  roomTypeId String?
+  roomType   RoomType? @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  roomId     String?
+  room       Room?    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  url        String
+  thumbUrl   String?
+  storageKey String?
+  caption    String?
+  altText    String?
+  ordering   Int      @default(0)
+  isCover    Boolean  @default(false)
+  width      Int?
+  height     Int?
+  createdAt  DateTime @default(now())
+
+  @@index([roomTypeId])
+  @@index([roomId])
+}
+
+model Amenity {
+  id          String  @id @default(uuid())
+  key         String  @unique  // e.g. "wifi", "pool", "breakfast"
+  name        String
+  description String?
+  iconUrl     String?
+  category    String?           // "general", "kitchen", "bathroom", "outdoor", etc.
+  createdAt   DateTime @default(now())
+
+  properties PropertyAmenity[]
+  roomTypes  RoomAmenity[]
+}
+
+model PropertyAmenity {
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  amenityId  String
+  amenity    Amenity  @relation(fields: [amenityId], references: [id], onDelete: Cascade)
+  notes      String?
+
+  @@id([propertyId, amenityId])
+}
+
+model RoomAmenity {
+  roomTypeId String
+  roomType   RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  amenityId  String
+  amenity    Amenity  @relation(fields: [amenityId], references: [id], onDelete: Cascade)
+  notes      String?
+
+  @@id([roomTypeId, amenityId])
+}
+
+model RatePlan {
+  id          String       @id @default(uuid())
+  propertyId  String
+  property    Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomTypeId  String?
+  roomType    RoomType?    @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  name        String
+  type        RatePlanType @default(STANDARD)
+  description String?
+  startDate   DateTime?
+  endDate     DateTime?
+  price       Decimal      @db.Decimal(12, 2)
+  currency    String       @default("USD")
+  minStay     Int?         @default(1)
+  maxStay     Int?
+  daysOfWeek  Int[]        // 0=Sunday … 6=Saturday
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([propertyId, roomTypeId])
+}
+
+model AvailabilityCalendarEntry {
+  id           String   @id @default(uuid())
+  propertyId   String
+  property     Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomTypeId   String?
+  roomType     RoomType? @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  roomId       String?
+  room         Room?    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  date         DateTime @db.Date
+  inventory    Int      @default(1)        // available units for that day
+  reserved     Int      @default(0)
+  price        Decimal? @db.Decimal(12, 2)
+  currency     String?  @default("USD")
+  closeOut     Boolean  @default(false)    // hard-close, sold out
+  minStay      Int?
+  maxStay      Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([propertyId, roomTypeId, roomId, date])
+  @@index([propertyId, date])
+  @@index([roomTypeId, date])
+  @@index([roomId, date])
+}
+
+model AvailabilityBlock {
+  id         String                  @id @default(uuid())
+  propertyId String
+  property   Property                @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomId     String?
+  room       Room?                   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  startDate  DateTime                @db.Date
+  endDate    DateTime                @db.Date
+  reason     AvailabilityBlockReason
+  bookingId  String?                 @unique
+  booking    Booking?                @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  notes      String?
+  createdAt  DateTime                @default(now())
+
+  @@index([propertyId, startDate, endDate])
+  @@index([roomId, startDate, endDate])
+}
+
+// ============================================================================
+//  BOOKINGS
+// ============================================================================
+
+model Booking {
+  id              String        @id @default(uuid())
+  reference       String        @unique           // human-friendly code, e.g. MSK-2026-00042
+  propertyId      String
+  property        Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomTypeId      String?
+  roomId          String?
+  room            Room?         @relation(fields: [roomId], references: [id])
+  guestUserId     String?
+  guestUser       User?         @relation("BookingGuest", fields: [guestUserId], references: [id])
+  guestEmail      String?
+  guestPhone      String?
+  guestFirstName  String?
+  guestLastName   String?
+  adults          Int           @default(1)
+  children        Int           @default(0)
+  checkIn         DateTime      @db.Date
+  checkOut        DateTime      @db.Date
+  nights          Int
+  status          BookingStatus @default(PENDING)
+  source          BookingSource @default(WEBSITE)
+  externalId      String?                          // e.g. Airbnb reservation id
+  channelId       String?
+  totalAmount     Decimal       @db.Decimal(12, 2)
+  paidAmount      Decimal       @db.Decimal(12, 2) @default(0)
+  currency        String        @default("USD")
+  specialRequests String?
+  cancellationReason String?
+  cancelledAt     DateTime?
+  checkedInAt     DateTime?
+  checkedOutAt    DateTime?
+  createdById     String?
+  createdBy       User?         @relation("BookingCreatedBy", fields: [createdById], references: [id])
+  metadata        Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  bookingGuests       BookingGuest[]
+  payments            BookingPayment[]
+  invoices            Invoice[]
+  reviews             Review[]
+  availabilityBlock   AvailabilityBlock?
+  channel             ChannelConnection? @relation(fields: [channelId], references: [id])
+
+  @@index([propertyId, checkIn, checkOut])
+  @@index([guestUserId])
+  @@index([status])
+  @@index([source])
+}
+
+model BookingGuest {
+  id          String   @id @default(uuid())
+  bookingId   String
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  fullName    String
+  email       String?
+  phone       String?
+  isPrimary   Boolean  @default(false)
+  documentNumber String?
+  dateOfBirth DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([bookingId])
+}
+
+model BookingPayment {
+  id            String        @id @default(uuid())
+  bookingId     String
+  booking       Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  amount        Decimal       @db.Decimal(12, 2)
+  currency      String        @default("USD")
+  status        PaymentStatus @default(PENDING)
+  method        PaymentMethod @default(STRIPE)
+  providerRef   String?                            // e.g. Stripe payment intent id
+  providerData  Json?
+  paidAt        DateTime?
+  refundedAt    DateTime?
+  failureReason String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([bookingId])
+  @@index([status])
+}
+
+model Invoice {
+  id           String        @id @default(uuid())
+  number       String        @unique
+  bookingId    String?
+  booking      Booking?      @relation(fields: [bookingId], references: [id])
+  issuedById   String?
+  issuedBy     User?         @relation("InvoiceIssuedBy", fields: [issuedById], references: [id])
+  recipientName  String?
+  recipientEmail String?
+  recipientAddress String?
+  status       InvoiceStatus @default(DRAFT)
+  subtotal     Decimal       @db.Decimal(12, 2)
+  taxAmount    Decimal       @db.Decimal(12, 2) @default(0)
+  total        Decimal       @db.Decimal(12, 2)
+  currency     String        @default("USD")
+  issuedAt     DateTime?
+  dueAt        DateTime?
+  paidAt       DateTime?
+  pdfUrl       String?
+  notes        String?
+  metadata     Json?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  items InvoiceItem[]
+
+  @@index([bookingId])
+  @@index([status])
+}
+
+model InvoiceItem {
+  id        String   @id @default(uuid())
+  invoiceId String
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity   Decimal  @db.Decimal(10, 2) @default(1)
+  unitPrice  Decimal  @db.Decimal(12, 2)
+  taxRate    Decimal  @db.Decimal(5, 2)  @default(0)
+  total      Decimal  @db.Decimal(12, 2)
+  createdAt  DateTime @default(now())
+
+  @@index([invoiceId])
+}
+
+// ============================================================================
+//  OPERATIONS — Inventory, Orders, Tasks, Schedule, Requests
+// ============================================================================
+
+model InventoryItem {
+  id           String   @id @default(uuid())
+  companyId    String?
+  propertyId   String?
+  sku          String?  @unique
+  name         String
+  description  String?
+  unit         String   @default("piece")  // "piece", "kg", "liter", ...
+  category     String?
+  reorderLevel Int      @default(0)
+  unitCost     Decimal? @db.Decimal(12, 2)
+  imageUrl     String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  movements    InventoryMovement[]
+  allocations  InventoryAllocation[]
+  orderItems   OrderItem[]
+
+  @@index([companyId])
+  @@index([propertyId])
+}
+
+model InventoryMovement {
+  id          String                @id @default(uuid())
+  itemId      String
+  item        InventoryItem         @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  type        InventoryMovementType
+  quantity    Decimal               @db.Decimal(12, 2)
+  fromLocation String?
+  toLocation   String?
+  reference    String?               // e.g. order id, allocation id
+  notes        String?
+  createdAt    DateTime              @default(now())
+
+  @@index([itemId, createdAt])
+}
+
+model InventoryAllocation {
+  id           String        @id @default(uuid())
+  itemId       String
+  item         InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  roomId       String?
+  room         Room?         @relation(fields: [roomId], references: [id])
+  allocatedToUserId String?
+  allocatedToUser   User?    @relation(fields: [allocatedToUserId], references: [id])
+  quantity     Decimal       @db.Decimal(12, 2)
+  notes        String?
+  allocatedAt  DateTime      @default(now())
+  returnedAt   DateTime?
+
+  @@index([itemId])
+  @@index([roomId])
+  @@index([allocatedToUserId])
+}
+
+model Order {
+  id           String      @id @default(uuid())
+  number       String      @unique
+  supplierId   String?
+  status       OrderStatus @default(DRAFT)
+  totalAmount  Decimal     @db.Decimal(12, 2)
+  currency     String      @default("USD")
+  expectedAt   DateTime?
+  receivedAt   DateTime?
+  notes        String?
+  createdById  String?
+  createdBy    User?       @relation("OrderCreatedBy", fields: [createdById], references: [id])
+  metadata     Json?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  items OrderItem[]
+}
+
+model OrderItem {
+  id        String        @id @default(uuid())
+  orderId   String
+  order     Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      InventoryItem @relation(fields: [itemId], references: [id])
+  quantity  Decimal       @db.Decimal(12, 2)
+  unitPrice Decimal       @db.Decimal(12, 2)
+  total     Decimal       @db.Decimal(12, 2)
+}
+
+model TaskItem {
+  id           String       @id @default(uuid())
+  title        String
+  description  String?
+  status       TaskStatus   @default(TODO)
+  priority     TaskPriority @default(MEDIUM)
+  dueAt        DateTime?
+  completedAt  DateTime?
+  departmentId String?
+  department   Department?  @relation(fields: [departmentId], references: [id])
+  propertyId   String?
+  roomId       String?
+  createdById  String?
+  createdBy    User?        @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  metadata     Json?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  assignees TaskAssignment[]
+
+  @@index([status])
+  @@index([dueAt])
+}
+
+model TaskAssignment {
+  id      String   @id @default(uuid())
+  taskId  String
+  task    TaskItem @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  acceptedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@unique([taskId, userId])
+}
+
+model ScheduleEntry {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  propertyId String?
+  startsAt   DateTime
+  endsAt     DateTime
+  notes      String?
+  shiftType  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId, startsAt])
+  @@index([propertyId, startsAt])
+}
+
+model GuestRequest {
+  id          String          @id @default(uuid())
+  bookingId   String?
+  propertyId  String?
+  roomId      String?
+  requestedById String?
+  requestedBy User?           @relation("RequestedBy", fields: [requestedById], references: [id])
+  assignedToId String?
+  assignedTo  User?           @relation("RequestAssignedTo", fields: [assignedToId], references: [id])
+  category    RequestCategory
+  status      RequestStatus   @default(OPEN)
+  title       String
+  description String?
+  priority    TaskPriority    @default(MEDIUM)
+  resolvedAt  DateTime?
+  metadata    Json?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([status])
+  @@index([assignedToId])
+  @@index([requestedById])
+}
+
+// ============================================================================
+//  COMMUNICATION — Chat & Notifications
+// ============================================================================
+
+model Chat {
+  id           String      @id @default(uuid())
+  type         ChatType
+  title        String?
+  description  String?
+  departmentId String?
+  department   Department? @relation("DepartmentChats", fields: [departmentId], references: [id])
+  propertyId   String?
+  category     String?              // for staff-guest categorized chats e.g. "Housekeeping"
+  isArchived   Boolean     @default(false)
+  metadata     Json?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  members  ChatMember[]
+  messages ChatMessage[]
+
+  @@index([type])
+  @@index([departmentId])
+  @@index([propertyId])
+}
+
+model ChatMember {
+  id        String   @id @default(uuid())
+  chatId    String
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("member")     // "owner" | "admin" | "member"
+  isMuted   Boolean  @default(false)
+  joinedAt  DateTime @default(now())
+  leftAt    DateTime?
+  lastReadAt DateTime?
+
+  @@unique([chatId, userId])
+}
+
+model ChatMessage {
+  id          String          @id @default(uuid())
+  chatId      String
+  chat        Chat            @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  senderId    String?
+  sender      User?           @relation(fields: [senderId], references: [id])
+  type        ChatMessageType @default(TEXT)
+  body        String?
+  attachmentUrl String?
+  attachmentType String?
+  replyToId   String?
+  replyTo     ChatMessage?    @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies     ChatMessage[]   @relation("MessageReplies")
+  editedAt    DateTime?
+  deletedAt   DateTime?
+  metadata    Json?
+  createdAt   DateTime        @default(now())
+
+  @@index([chatId, createdAt])
+  @@index([senderId])
+}
+
+model Notification {
+  id        String              @id @default(uuid())
+  userId    String
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel   NotificationChannel
+  title     String
+  body      String?
+  data      Json?
+  status    NotificationStatus  @default(PENDING)
+  readAt    DateTime?
+  sentAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  @@index([userId, status])
+  @@index([createdAt])
+}
+
+model NotificationToken {
+  id        String         @id @default(uuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId  String?
+  device    Device?        @relation(fields: [deviceId], references: [id])
+  platform  DevicePlatform
+  token     String         @unique
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+}
+
+// ============================================================================
+//  LOCATION & ACCESS
+// ============================================================================
+
+model Geofence {
+  id          String   @id @default(uuid())
+  propertyId  String?
+  property    Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  centerLat   Float
+  centerLng   Float
+  radius      Float                 // meters
+  polygon     Json?                 // optional polygon coordinates
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  events GeofenceEvent[]
+
+  @@index([propertyId])
+}
+
+model GeofenceEvent {
+  id         String            @id @default(uuid())
+  geofenceId String
+  geofence   Geofence          @relation(fields: [geofenceId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       GeofenceEventType
+  occurredAt DateTime          @default(now())
+  latitude   Float?
+  longitude  Float?
+
+  @@index([geofenceId, occurredAt])
+  @@index([userId, occurredAt])
+}
+
+model AccessGrant {
+  id          String            @id @default(uuid())
+  userId      String
+  user        User              @relation("AccessGrantUser", fields: [userId], references: [id], onDelete: Cascade)
+  resourceType String            // "property" | "room" | "department" | "feature"
+  resourceId   String?
+  scope        Json?
+  status       AccessGrantStatus @default(ACTIVE)
+  grantedById  String?
+  grantedBy    User?             @relation("AccessGrantCreatedBy", fields: [grantedById], references: [id])
+  startsAt     DateTime?
+  endsAt       DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([userId, resourceType])
+}
+
+model QrCode {
+  id          String       @id @default(uuid())
+  code        String       @unique
+  target      QrCodeTarget
+  propertyId  String?
+  property    Property?    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomId      String?
+  room        Room?        @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  payload     Json?
+  imageUrl    String?
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  scans QrScan[]
+}
+
+model QrScan {
+  id        String   @id @default(uuid())
+  qrCodeId  String
+  qrCode    QrCode   @relation(fields: [qrCodeId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  context   Json?
+  scannedAt DateTime @default(now())
+
+  @@index([qrCodeId, scannedAt])
+}
+
+// ============================================================================
+//  REVIEWS / FEEDBACK
+// ============================================================================
+
+model Review {
+  id           String        @id @default(uuid())
+  authorId     String?
+  author       User?         @relation("ReviewAuthor", fields: [authorId], references: [id])
+  subject      ReviewSubject
+  staffSubjectId String?
+  staffSubject User?         @relation("ReviewSubjectStaff", fields: [staffSubjectId], references: [id])
+  propertyId   String?
+  property     Property?     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  bookingId    String?
+  booking      Booking?      @relation(fields: [bookingId], references: [id])
+  objectName   String?       // for OBJECT reviews ("breakfast", "front desk", etc.)
+  rating       Int           // 1-5
+  title        String?
+  body         String?
+  isPublic     Boolean       @default(false)
+  isApproved   Boolean       @default(false)
+  responseBody String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  photos ReviewPhoto[]
+
+  @@index([propertyId, isPublic])
+  @@index([staffSubjectId])
+}
+
+model ReviewPhoto {
+  id       String  @id @default(uuid())
+  reviewId String
+  review   Review  @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  url      String
+  ordering Int     @default(0)
+}
+
+// ============================================================================
+//  CONTENT — Handbook & Rules
+// ============================================================================
+
+model HandbookCategory {
+  id          String   @id @default(uuid())
+  propertyId  String?
+  property    Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String?
+  description String?
+  iconUrl     String?
+  ordering    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items HandbookItem[]
+}
+
+model HandbookItem {
+  id          String           @id @default(uuid())
+  categoryId  String
+  category    HandbookCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  title       String
+  body        String
+  imageUrl    String?
+  ordering    Int              @default(0)
+  isPublished Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model RuleSection {
+  id          String   @id @default(uuid())
+  propertyId  String?
+  property    Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  title       String
+  ordering    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items RuleItem[]
+}
+
+model RuleItem {
+  id        String      @id @default(uuid())
+  sectionId String
+  section   RuleSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  body      String
+  ordering  Int         @default(0)
+}
+
+// ============================================================================
+//  FINANCE
+// ============================================================================
+
+model Cost {
+  id          String   @id @default(uuid())
+  companyId   String?
+  company     Company? @relation(fields: [companyId], references: [id])
+  propertyId  String?
+  type        CostType
+  category    String?
+  description String
+  amount      Decimal  @db.Decimal(12, 2)
+  currency    String   @default("USD")
+  occurredOn  DateTime @db.Date
+  vendor      String?
+  invoiceUrl  String?
+  createdById String?
+  createdBy   User?    @relation("CostCreatedBy", fields: [createdById], references: [id])
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId, occurredOn])
+  @@index([type])
+}
+
+model RevenueEntry {
+  id          String   @id @default(uuid())
+  companyId   String?
+  company     Company? @relation(fields: [companyId], references: [id])
+  propertyId  String?
+  bookingId   String?
+  source      String   // "booking" | "ancillary" | "other"
+  description String?
+  amount      Decimal  @db.Decimal(12, 2)
+  currency    String   @default("USD")
+  occurredOn  DateTime @db.Date
+  recordedById String?
+  recordedBy  User?    @relation(fields: [recordedById], references: [id])
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([companyId, occurredOn])
+}
+
+// ============================================================================
+//  ONBOARDING WIZARDS
+// ============================================================================
+
+model WizardState {
+  id        String     @id @default(uuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      WizardKind
+  step      Int        @default(0)
+  data      Json?
+  completedAt DateTime?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@unique([userId, kind])
+}
+
+// ============================================================================
+//  WEBSITE-SPECIFIC — Careers, Newsletter, Partner / Contact Inquiries
+// ============================================================================
+
+model JobPosting {
+  id           String   @id @default(uuid())
+  title        String
+  slug         String   @unique
+  department   String?
+  location     String?
+  employmentType String?  // "full-time", "part-time", ...
+  description  String
+  requirements String?
+  isPublished  Boolean  @default(true)
+  publishedAt  DateTime?
+  closesAt     DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  applications JobApplication[]
+}
+
+model JobApplication {
+  id          String               @id @default(uuid())
+  jobId       String
+  job         JobPosting           @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  applicantUserId String?
+  applicantUser User?              @relation(fields: [applicantUserId], references: [id])
+  fullName    String
+  email       String
+  phone       String?
+  coverLetter String?
+  cvUrl       String?              // uploaded file
+  cvData      Json?                // for "create CV" flow on the website
+  status      JobApplicationStatus @default(RECEIVED)
+  notes       String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([jobId, status])
+}
+
+model NewsletterSubscription {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  source    String?
+  isActive  Boolean  @default(true)
+  confirmedAt DateTime?
+  unsubscribedAt DateTime?
+  createdAt DateTime @default(now())
+}
+
+model PartnerInquiry {
+  id          String        @id @default(uuid())
+  fullName    String
+  email       String
+  phone       String?
+  companyName String?
+  propertyType String?
+  propertyCount Int?
+  region      String?
+  message     String?
+  userId      String?
+  user        User?         @relation(fields: [userId], references: [id])
+  status      InquiryStatus @default(NEW)
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model ContactInquiry {
+  id        String        @id @default(uuid())
+  fullName  String
+  email     String
+  phone     String?
+  subject   String?
+  message   String
+  userId    String?
+  user      User?         @relation(fields: [userId], references: [id])
+  status    InquiryStatus @default(NEW)
+  notes     String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+// ============================================================================
+//  CHANNEL MANAGEMENT (Phase 3 — Airbnb / Booking.com / Expedia)
+// ============================================================================
+
+model ChannelConnection {
+  id          String   @id @default(uuid())
+  propertyId  String
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  provider    String   // "airbnb" | "booking_com" | "expedia" | "channel_manager"
+  externalId  String
+  credentials Json?    // encrypted token / API key
+  isActive    Boolean  @default(true)
+  lastSyncedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  bookings Booking[]
+  syncLogs ChannelSyncLog[]
+
+  @@unique([propertyId, provider])
+}
+
+model ChannelSyncLog {
+  id          String   @id @default(uuid())
+  channelId   String
+  channel     ChannelConnection @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  direction   String   // "in" | "out"
+  entity      String   // "booking" | "availability" | "rate"
+  status      String   // "success" | "failed"
+  payload     Json?
+  errorMessage String?
+  createdAt   DateTime @default(now())
+
+  @@index([channelId, createdAt])
+}
+
+// ============================================================================
+//  DYNAMIC PRICING (Phase 4)
+// ============================================================================
+
+model DynamicPricingRule {
+  id          String   @id @default(uuid())
+  propertyId  String
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  conditions  Json     // structured rule conditions
+  adjustment  Json     // structured adjustment definition
+  priority    Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================================
+//  AUDIT LOG
+// ============================================================================
+
+model AuditLog {
+  id          String      @id @default(uuid())
+  userId      String?
+  user        User?       @relation(fields: [userId], references: [id])
+  action      AuditAction
+  entityType  String
+  entityId    String?
+  changes     Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime    @default(now())
+
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
+}

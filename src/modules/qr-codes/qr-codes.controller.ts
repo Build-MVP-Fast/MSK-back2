@@ -1,0 +1,54 @@
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { QrCodeTarget, UserRole } from '@prisma/client';
+
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Public } from '../../common/decorators/public.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+
+import { QrCodesService } from './qr-codes.service';
+
+@ApiTags('qr-codes')
+@Controller('qr-codes')
+export class QrCodesController {
+  constructor(private readonly service: QrCodesService) {}
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
+  @Get()
+  list(@Query() q: { propertyId?: string; target?: QrCodeTarget }) {
+    return this.service.list(q);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
+  @Post()
+  generate(@Body() dto: any) {
+    return this.service.generate(dto);
+  }
+
+  @Public()
+  @Get('resolve/:code')
+  resolve(@Param('code') code: string) {
+    return this.service.resolve(code);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('scan/:code')
+  scan(@Param('code') code: string, @Body() body: any, @CurrentUser('id') userId: string) {
+    return this.service.recordScan(code, userId, body);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
+  @Delete(':id')
+  deactivate(@Param('id') id: string) {
+    return this.service.deactivate(id);
+  }
+}

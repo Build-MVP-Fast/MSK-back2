@@ -1,0 +1,57 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: msk-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: msk
+      POSTGRES_PASSWORD: msk
+      POSTGRES_DB: msk
+    ports:
+      - "5432:5432"
+    volumes:
+      - msk_pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: msk-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - msk_redisdata:/data
+
+  minio:
+    image: minio/minio:latest
+    container_name: msk-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    ports:
+      - "9000:9000"
+      # Console: host port 9101 → container 9001 (host 9001 is taken locally)
+      - "9101:9001"
+    volumes:
+      - msk_miniodata:/data
+
+  api:
+    build: .
+    container_name: msk-api
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    env_file:
+      - .env
+    ports:
+      - "4000:4000"
+
+volumes:
+  msk_pgdata:
+  msk_redisdata:
+  msk_miniodata:
