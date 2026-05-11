@@ -5,6 +5,7 @@ import * as argon2 from 'argon2';
 import * as crypto from 'crypto';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { EmailService } from '../notifications/email.service';
 
 interface SendOtpInput {
   destination: string;
@@ -26,6 +27,7 @@ export class OtpService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly email: EmailService,
   ) {}
 
   /**
@@ -52,9 +54,81 @@ export class OtpService {
       },
     });
 
-    // TODO: dispatch via real transport (Twilio for SMS, Nodemailer for email).
+    // Always log so dev environments without SMTP can still pull the code
+    // out of the server logs.
     this.logger.debug(`[OTP/${input.purpose}] code=${code} → ${input.destination}`);
+
+    // Best-effort email delivery. EmailService no-ops when SMTP is not
+    // configured; we don't want a missing transport to fail the request
+    // because the OTP record is already persisted.
+    if (input.channel === 'email') {
+      try {
+        const { subject, html } = this.composeEmail(input.purpose, input.destination, code);
+        await this.email.send(input.destination, subject, html);
+      } catch (err) {
+        this.logger.warn(`OTP email send failed (${input.purpose}): ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
     return { sent: true };
+  }
+
+  /**
+   * Build subject + HTML body per OTP purpose. RESET_PASSWORD includes a
+   * one-click link to msk-web's /new-password page; the token is just
+   * `destination|code` base64url-encoded so the frontend can decode it
+   * and POST the existing /auth/password/reset shape unchanged.
+   */
+  private composeEmail(
+    purpose: OtpPurpose,
+    destination: string,
+    code: string,
+  ): { subject: string; html: string } {
+    const webBase =
+      this.config.get<string>('WEB_PUBLIC_URL') ?? 'https://msk-web-kpjg.vercel.app';
+
+    if (purpose === OtpPurpose.RESET_PASSWORD) {
+      const token = Buffer.from(`${destination}|${code}`).toString('base64url');
+      const link = `${webBase.replace(/\/$/, '')}/new-password?token=${encodeURIComponent(token)}`;
+      const html = `
+        <div style="font-family:Inter,Arial,sans-serif;color:#222222;max-width:520px;margin:0 auto;padding:24px">
+          <h2 style="font-size:20px;font-weight:600;margin:0 0 16px">Reset your MSK Residence password</h2>
+          <p style="font-size:14px;line-height:22px;margin:0 0 20px">
+            We received a request to reset your password. Click the button
+            below to choose a new one. The link expires in 5 minutes and can
+            only be used once.
+          </p>
+          <p style="margin:0 0 24px">
+            <a href="${link}" style="display:inline-block;background:#A06A57;color:#FFFFFF;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600">Reset Password</a>
+          </p>
+          <p style="font-size:12px;line-height:18px;color:#666666;margin:0 0 8px">
+            Or paste this verification code into the form: <strong>${code}</strong>
+          </p>
+          <p style="font-size:12px;line-height:18px;color:#666666;margin:0">
+            If you didn't request this, you can ignore this email — your
+            password won't change.
+          </p>
+        </div>`;
+      return { subject: 'Reset your MSK Residence password', html };
+    }
+
+    if (purpose === OtpPurpose.VERIFY_EMAIL) {
+      const html = `
+        <div style="font-family:Inter,Arial,sans-serif;color:#222222;max-width:520px;margin:0 auto;padding:24px">
+          <h2 style="font-size:20px;font-weight:600;margin:0 0 16px">Verify your email</h2>
+          <p style="font-size:14px;line-height:22px">Your verification code is:</p>
+          <p style="font-size:28px;font-weight:700;letter-spacing:4px;margin:16px 0">${code}</p>
+        </div>`;
+      return { subject: 'Verify your email', html };
+    }
+
+    // Generic fallback for other purposes (RESET_PIN, SIGN_UP, etc.).
+    const html = `
+      <div style="font-family:Inter,Arial,sans-serif;color:#222222;max-width:520px;margin:0 auto;padding:24px">
+        <p style="font-size:14px;line-height:22px;margin:0 0 16px">Your one-time code:</p>
+        <p style="font-size:28px;font-weight:700;letter-spacing:4px;margin:0">${code}</p>
+      </div>`;
+    return { subject: `Your MSK verification code`, html };
   }
 
   /** Consume an OTP — used internally by AuthService.resetPassword/PIN etc. */
