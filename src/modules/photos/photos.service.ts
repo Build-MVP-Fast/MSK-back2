@@ -204,6 +204,19 @@ export class PhotosService {
     return this.prisma.roomPhoto.delete({ where: { id } });
   }
 
+  /**
+   * Generic upload for CMS surfaces (testimonial photos, expansion-city
+   * imagery, site-content IMAGE_URL fields). Reuses the same WebP+resize
+   * pipeline as property/room uploads so the output is consistently sized,
+   * but DOES NOT persist a DB row — callers store the returned URL
+   * wherever it belongs (SiteContent.value, Testimonial.photoUrl, etc.).
+   */
+  async uploadCmsImage(file: Express.Multer.File): Promise<{ url: string }> {
+    const { full } = await this.processImage(file.buffer);
+    const { url } = await this.storage.upload(full, 'image/webp', 'cms');
+    return { url };
+  }
+
   private async processImage(buffer: Buffer) {
     const full = await sharp(buffer)
       .resize({ width: 1920, withoutEnlargement: true })

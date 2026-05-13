@@ -27,6 +27,20 @@ import { PhotosService } from './photos.service';
 export class PhotosController {
   constructor(private readonly service: PhotosService) {}
 
+  /**
+   * Generic CMS upload — used by the admin's content pages for testimonial
+   * photos, expansion-city imagery, and site-content IMAGE_URL fields. The
+   * returned URL is written to wherever the caller stores it (no DB row
+   * is created by this endpoint).
+   */
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file'))
+  @Post('cms')
+  uploadCms(@UploadedFile() file: Express.Multer.File) {
+    return this.service.uploadCmsImage(file);
+  }
+
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('file'))
