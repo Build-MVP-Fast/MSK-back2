@@ -57,6 +57,13 @@ import { CareersModule } from './modules/careers/careers.module';
 import { InquiriesModule } from './modules/inquiries/inquiries.module';
 import { PublicModule } from './modules/public/public.module';
 
+// CMS (admin-editable website content)
+import { SiteContentModule } from './modules/site-content/site-content.module';
+import { FaqsModule } from './modules/faqs/faqs.module';
+import { HouseRulesModule } from './modules/house-rules/house-rules.module';
+import { TestimonialsModule } from './modules/testimonials/testimonials.module';
+import { ExpansionCitiesModule } from './modules/expansion-cities/expansion-cities.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -120,6 +127,13 @@ import { PublicModule } from './modules/public/public.module';
     CareersModule,
     InquiriesModule,
     PublicModule,
+
+    // CMS
+    SiteContentModule,
+    FaqsModule,
+    HouseRulesModule,
+    TestimonialsModule,
+    ExpansionCitiesModule,
   ],
   controllers: [AppController],
   providers: [

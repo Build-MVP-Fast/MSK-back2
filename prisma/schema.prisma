@@ -1664,3 +1664,87 @@ model AuditLog {
   @@index([userId, createdAt])
   @@index([entityType, entityId])
 }
+
+
+// ── CMS / Website content (managed from admin dashboard) ────────────────────
+
+enum SiteContentType {
+  PLAIN
+  RICH
+  MARKDOWN
+  IMAGE_URL
+  URL
+}
+
+model SiteContent {
+  id          String          @id @default(cuid())
+  key         String          @unique
+  group       String
+  label       String
+  type        SiteContentType
+  value       String          @db.Text
+  description String?
+  updatedAt   DateTime        @updatedAt
+  updatedById String?
+
+  @@index([group])
+}
+
+model Faq {
+  id          String   @id @default(cuid())
+  category    String
+  question    String
+  answer      String   @db.Text
+  ordering    Int      @default(0)
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category, ordering])
+  @@index([isPublished])
+}
+
+model HouseRule {
+  id          String   @id @default(cuid())
+  category    String
+  title       String
+  description String   @db.Text
+  icon        String?
+  ordering    Int      @default(0)
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category, ordering])
+  @@index([isPublished])
+}
+
+model Testimonial {
+  id          String   @id @default(cuid())
+  guestName   String
+  guestRole   String?
+  quote       String   @db.Text
+  photoUrl    String?
+  rating      Int?
+  ordering    Int      @default(0)
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([ordering])
+  @@index([isPublished])
+}
+
+model ExpansionCity {
+  id          String    @id @default(cuid())
+  city        String
+  country     String
+  expectedAt  DateTime?
+  description String?
+  imageUrl    String?
+  ordering    Int       @default(0)
+  isPublished Boolean   @default(true)
+
+  @@index([ordering])
+  @@index([isPublished])
+}
