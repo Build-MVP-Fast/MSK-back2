@@ -33,4 +33,10 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/prisma ./prisma
 
 EXPOSE 4000
-CMD ["node", "dist/main.js"]
+# Apply any pending Prisma migrations before booting the API. Without
+# this, a deploy whose code references a new table/column starts
+# successfully but throws on the first request that touches the new
+# schema (we hit this on the CMS deploy). `migrate deploy` is a no-op
+# when there's nothing pending, so the steady-state cost is one cheap
+# roundtrip per container start.
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
