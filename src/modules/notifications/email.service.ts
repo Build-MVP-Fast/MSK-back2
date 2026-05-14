@@ -15,7 +15,12 @@ export class EmailService {
   ) {
     const host = this.config.get<string>('SMTP_HOST');
     if (host) {
-      const port = this.config.get<number>('SMTP_PORT', 587);
+      // @nestjs/config returns the raw string from process.env regardless
+      // of the type hint, so coerce explicitly. Without this, `port === 465`
+      // is `"465" === 465` (false), and the transporter would attempt
+      // STARTTLS on an implicit-TLS port — handshake hangs with
+      // "Greeting never received".
+      const port = Number(this.config.get<string>('SMTP_PORT')) || 587;
       this.transporter = nodemailer.createTransport({
         host,
         port,
