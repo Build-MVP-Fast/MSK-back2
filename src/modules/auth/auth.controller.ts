@@ -137,4 +137,20 @@ export class AuthController {
   me(@CurrentUser() user: unknown) {
     return user;
   }
+
+  /**
+   * Self-service password / PIN change for the logged-in user. Body:
+   * { currentSecret: string, newSecret: string }. Works for both
+   * PASSWORD-based (web guest) and PIN-based (staff) accounts.
+   */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @Post('change-secret')
+  changeSecret(
+    @CurrentUser('id') userId: string,
+    @Body() body: { currentSecret: string; newSecret: string },
+  ) {
+    return this.auth.changeSecret(userId, body.currentSecret, body.newSecret);
+  }
 }

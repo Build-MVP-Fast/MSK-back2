@@ -121,8 +121,10 @@ export class AuthService {
         firstName: dto.firstName,
         lastName: dto.lastName,
         fullName: `${dto.firstName ?? ''} ${dto.lastName ?? ''}`.trim() || null,
-        role: UserRole.GUEST,
-        primaryRole: UserRole.GUEST,
+        // GUEST role was retired; a "guest" account created via PIN now
+        // shares the WEB_GUEST role (same scope: book + view profile).
+        role: UserRole.WEB_GUEST,
+        primaryRole: UserRole.WEB_GUEST,
         authProvider: AuthProvider.PIN,
         guestProfile: { create: {} },
         credentials: {
@@ -234,6 +236,49 @@ export class AuthService {
       },
     });
     return { reset: true };
+  }
+
+  /**
+   * Change a logged-in user's credential (password or PIN). The provider
+   * is auto-detected from the user's existing credential row — staff
+   * accounts use PIN, website signups use PASSWORD, and either flow uses
+   * the same endpoint.
+   *
+   * Returns generic "Invalid credentials" on a wrong current secret so we
+   * don't leak which provider the account uses.
+   */
+  async changeSecret(userId: string, currentSecret: string, newSecret: string) {
+    if (!currentSecret || !newSecret) {
+      throw new BadRequestException('Current and new secret are required.');
+    }
+    if (newSecret.length < 4) {
+      throw new BadRequestException('New secret is too short.');
+    }
+    if (currentSecret === newSecret) {
+      throw new BadRequestException(
+        'New secret must be different from the current one.',
+      );
+    }
+
+    const credentials = await this.prisma.userCredential.findMany({
+      where: { userId },
+    });
+    // Prefer PASSWORD over PIN if both exist (shouldn't, but be tolerant).
+    const credential =
+      credentials.find((c) => c.provider === AuthProvider.PASSWORD) ??
+      credentials.find((c) => c.provider === AuthProvider.PIN);
+    if (!credential) {
+      throw new BadRequestException('Account has no password set.');
+    }
+
+    const valid = await argon2.verify(credential.secretHash, currentSecret);
+    if (!valid) throw new UnauthorizedException('Invalid credentials');
+
+    await this.prisma.userCredential.update({
+      where: { id: credential.id },
+      data: { secretHash: await argon2.hash(newSecret) },
+    });
+    return { changed: true, provider: credential.provider };
   }
 
   // -------------------------------------------------------- reservation enquiry
