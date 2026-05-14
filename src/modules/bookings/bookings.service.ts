@@ -230,6 +230,29 @@ export class BookingsService {
     };
   }
 
+  /**
+   * Bookings belonging to the currently-authenticated guest. Matches on
+   * BOTH guestUserId (the FK set when the user is logged in at booking
+   * time) AND guestEmail (the email captured even when no account
+   * exists yet) — so a guest who booked anonymously and later created
+   * an account with the same email still sees their stays.
+   *
+   * Ordered by checkIn ASC so the profile page can pull "next stay"
+   * trivially: the first item with checkIn >= today.
+   */
+  async mine(userId: string, email?: string | null) {
+    const orClauses: Prisma.BookingWhereInput[] = [{ guestUserId: userId }];
+    if (email) orClauses.push({ guestEmail: email });
+    return this.prisma.booking.findMany({
+      where: { OR: orClauses, status: { not: BookingStatus.CANCELLED } },
+      orderBy: { checkIn: 'asc' },
+      include: {
+        property: { select: { id: true, name: true, slug: true } },
+        room: { select: { id: true, number: true } },
+      },
+    });
+  }
+
   async detail(id: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
@@ -403,17 +426,15 @@ export class BookingsService {
       }
     }
 
-    // Booking has a Room relation but `roomType` is stored as id only on
-    // this schema (no FK relation back). The frontend hydrates room-type
-    // metadata from its existing room-type fetch, so we only need the
-    // assigned room here.
-    return this.prisma.booking.update({
+    await this.prisma.booking.update({
       where: { id: bookingId },
       data: { roomId: roomId ?? null },
-      include: {
-        room: { select: { id: true, number: true, floor: true } },
-      },
+      select: { id: true },
     });
+
+    // Return the same shape `detail()` returns so the admin UI can replace
+    // its booking state in-place without losing property/payments/invoices.
+    return this.detail(bookingId);
   }
 
   /**

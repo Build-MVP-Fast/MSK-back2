@@ -11,6 +11,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { BookingSource, UserRole } from '@prisma/client';
 
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -90,6 +91,21 @@ export class BookingsController {
     );
   }
 
+  /**
+   * Bookings belonging to the authenticated guest — feeds the website's
+   * profile page. Public route would be wrong (it'd leak by user-id);
+   * any JWT is enough, no role restriction.
+   */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('my')
+  myBookings(
+    @CurrentUser('id') userId: string,
+    @CurrentUser('email') email: string | null,
+  ) {
+    return this.service.mine(userId, email);
+  }
+
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
@@ -136,7 +152,6 @@ export class BookingsController {
     UserRole.ADMIN,
     UserRole.SUPER_USER,
     UserRole.RECEPTIONIST,
-    UserRole.GUEST,
     UserRole.WEB_GUEST,
   )
   @Post(':id/cancel')
