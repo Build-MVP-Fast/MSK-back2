@@ -123,3 +123,30 @@ export class ListBookingsQueryDto {
   @Min(1)
   pageSize?: number;
 }
+
+/**
+ * Assign an existing booking to a specific room (or unassign by passing
+ * roomId: null). Validation lives in the service — DTO only enforces
+ * shape so a stray field on the request body throws via
+ * forbidNonWhitelisted.
+ */
+export class AssignRoomDto {
+  @IsOptional()
+  @IsUUID()
+  roomId?: string | null;
+}
+
+/**
+ * Read-only calendar view of bookings for a property over a date window.
+ * Used by the Reservations Calendar / Gantt view in the admin.
+ */
+export class CalendarQueryDto {
+  @IsUUID()
+  propertyId!: string;
+
+  @IsDateString()
+  from!: string;
+
+  @IsDateString()
+  to!: string;
+}

@@ -17,6 +17,8 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 
 import {
+  AssignRoomDto,
+  CalendarQueryDto,
   CancelBookingDto,
   CreateBookingDto,
   ListBookingsQueryDto,
@@ -71,6 +73,23 @@ export class BookingsController {
     });
   }
 
+  /**
+   * Calendar/Gantt view: rooms × days × bookings for a property over a
+   * date window (max 90 days). Routed BEFORE `:id` so "calendar" isn't
+   * captured by the param-route catch-all.
+   */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
+  @Get('calendar')
+  calendar(@Query() query: CalendarQueryDto) {
+    return this.service.calendar(
+      query.propertyId,
+      new Date(query.from),
+      new Date(query.to),
+    );
+  }
+
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
@@ -123,6 +142,19 @@ export class BookingsController {
   @Post(':id/cancel')
   cancel(@Param('id') id: string, @Body() body: CancelBookingDto) {
     return this.service.cancel(id, body.reason);
+  }
+
+  /**
+   * Pin (or unassign) a specific physical room on an active booking.
+   * Routed BEFORE the generic `:id` PATCH so the validated DTO and the
+   * domain-aware service path always handle assignments.
+   */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
+  @Patch(':id/assign-room')
+  assignRoom(@Param('id') id: string, @Body() dto: AssignRoomDto) {
+    return this.service.assignRoom(id, dto.roomId ?? null);
   }
 
   @ApiBearerAuth()

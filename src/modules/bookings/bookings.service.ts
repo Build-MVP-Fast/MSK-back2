@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -321,6 +322,161 @@ export class BookingsService {
 
   update(id: string, dto: Prisma.BookingUncheckedUpdateInput) {
     return this.prisma.booking.update({ where: { id }, data: dto });
+  }
+
+  /**
+   * Pin a booking to a specific physical room — or unassign by passing
+   * roomId = null. Receptionists do this as guests arrive ("Smith party
+   * is checking in, give them Room 203"). Rules enforced:
+   *
+   *   1. Booking must exist and not be in a terminal state (CANCELLED /
+   *      CHECKED_OUT). Unassigning a terminal booking is still blocked —
+   *      they're frozen.
+   *   2. If roomId is null, just clear the assignment.
+   *   3. Otherwise the room must belong to the same property AND room
+   *      type as the booking (you can't put a Suite guest in a Studio).
+   *   4. The room must not already be assigned to another active
+   *      booking whose [checkIn, checkOut) overlaps this booking's
+   *      window. Active = status NOT IN (CANCELLED, NO_SHOW). 409 on
+   *      conflict.
+   */
+  async assignRoom(bookingId: string, roomId: string | null) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        id: true,
+        propertyId: true,
+        roomTypeId: true,
+        status: true,
+        checkIn: true,
+        checkOut: true,
+      },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+
+    if (
+      booking.status === BookingStatus.CANCELLED ||
+      booking.status === BookingStatus.CHECKED_OUT
+    ) {
+      throw new BadRequestException(
+        `Cannot change the room assignment of a ${booking.status.toLowerCase().replace('_', ' ')} booking.`,
+      );
+    }
+
+    if (roomId !== null && roomId !== undefined) {
+      const room = await this.prisma.room.findUnique({
+        where: { id: roomId },
+        select: { id: true, number: true, propertyId: true, roomTypeId: true },
+      });
+      if (!room) throw new NotFoundException('Room not found');
+
+      if (room.propertyId !== booking.propertyId) {
+        throw new BadRequestException(
+          'That room belongs to a different property.',
+        );
+      }
+      if (room.roomTypeId !== booking.roomTypeId) {
+        throw new BadRequestException(
+          'That room is a different room type than this booking.',
+        );
+      }
+
+      // Overlap check: any active booking on the same room that shares any
+      // date with [booking.checkIn, booking.checkOut) is a conflict.
+      // checkOut is exclusive — Room can be reused on the checkout day.
+      const conflict = await this.prisma.booking.findFirst({
+        where: {
+          id: { not: bookingId },
+          roomId,
+          status: { notIn: [BookingStatus.CANCELLED, BookingStatus.NO_SHOW] },
+          AND: [
+            { checkIn: { lt: booking.checkOut } },
+            { checkOut: { gt: booking.checkIn } },
+          ],
+        },
+        select: { reference: true, checkIn: true, checkOut: true },
+      });
+      if (conflict) {
+        throw new ConflictException(
+          `Room ${room.number} is already on booking ${conflict.reference} for overlapping dates.`,
+        );
+      }
+    }
+
+    // Booking has a Room relation but `roomType` is stored as id only on
+    // this schema (no FK relation back). The frontend hydrates room-type
+    // metadata from its existing room-type fetch, so we only need the
+    // assigned room here.
+    return this.prisma.booking.update({
+      where: { id: bookingId },
+      data: { roomId: roomId ?? null },
+      include: {
+        room: { select: { id: true, number: true, floor: true } },
+      },
+    });
+  }
+
+  /**
+   * Calendar/Gantt view: every room in the property + every active
+   * booking touching the [from, to) window, returned in a shape the UI
+   * can drop straight into rows × days. Unassigned bookings come back
+   * separately so the UI can show them in a dedicated lane.
+   *
+   * `to` must be at most 90 days after `from` — caps the worst case.
+   */
+  async calendar(propertyId: string, from: Date, to: Date) {
+    const days = Math.ceil((to.getTime() - from.getTime()) / 86400000);
+    if (days <= 0) {
+      throw new BadRequestException('`to` must be after `from`.');
+    }
+    if (days > 90) {
+      throw new BadRequestException(
+        'Calendar window is capped at 90 days. Request a smaller range.',
+      );
+    }
+
+    const [rooms, bookings] = await Promise.all([
+      this.prisma.room.findMany({
+        where: { propertyId },
+        select: {
+          id: true,
+          number: true,
+          floor: true,
+          status: true,
+          roomType: { select: { id: true, name: true } },
+        },
+        orderBy: [{ floor: 'asc' }, { number: 'asc' }],
+      }),
+      this.prisma.booking.findMany({
+        where: {
+          propertyId,
+          status: { notIn: [BookingStatus.CANCELLED, BookingStatus.NO_SHOW] },
+          AND: [{ checkIn: { lt: to } }, { checkOut: { gt: from } }],
+        },
+        select: {
+          id: true,
+          reference: true,
+          status: true,
+          checkIn: true,
+          checkOut: true,
+          roomId: true,
+          roomTypeId: true,
+          guestFirstName: true,
+          guestLastName: true,
+          adults: true,
+          children: true,
+          totalAmount: true,
+          source: true,
+        },
+        orderBy: { checkIn: 'asc' },
+      }),
+    ]);
+
+    return {
+      rooms,
+      bookings: bookings.filter((b) => b.roomId !== null),
+      unassigned: bookings.filter((b) => b.roomId === null),
+    };
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────
