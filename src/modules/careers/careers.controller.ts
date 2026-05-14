@@ -80,7 +80,11 @@ export class CareersController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
+  // Receptionists view the application list from the admin sidebar so
+  // they can route inbound CVs to the hiring manager; admins and
+  // super-users also read it. Mutations (status updates, deletes) stay
+  // restricted on the corresponding write routes.
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get('admin/applications')
   listApplications(@Query() q: { jobId?: string; status?: JobApplicationStatus }) {
     return this.service.listApplications(q);
