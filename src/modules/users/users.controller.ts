@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
@@ -7,6 +18,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 
+import { CreateUserDto } from './dto/create-user.dto';
 import { UsersService } from './users.service';
 
 @ApiTags('users')
@@ -20,6 +32,23 @@ export class UsersController {
   @Get()
   list(@Query() q: any) {
     return this.service.list(q);
+  }
+
+  /**
+   * Admin-created staff. Only ADMIN / SUPER_USER may invoke. Promoting a
+   * new user to SUPER_USER is additionally gated to existing SUPER_USERs
+   * — that prevents an ADMIN from quietly granting themselves higher
+   * privileges by creating a SUPER_USER teammate.
+   */
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
+  @Post()
+  create(@Body() dto: CreateUserDto, @CurrentUser('role') callerRole: UserRole) {
+    if (dto.role === UserRole.SUPER_USER && callerRole !== UserRole.SUPER_USER) {
+      throw new BadRequestException(
+        'Only a SUPER_USER can create another SUPER_USER account.',
+      );
+    }
+    return this.service.createStaff(dto);
   }
 
   @Get('me')
