@@ -56,6 +56,7 @@ import { FinanceModule } from './modules/finance/finance.module';
 import { CareersModule } from './modules/careers/careers.module';
 import { InquiriesModule } from './modules/inquiries/inquiries.module';
 import { PublicModule } from './modules/public/public.module';
+import { WaitlistModule } from './modules/waitlist/waitlist.module';
 
 // CMS (admin-editable website content)
 import { SiteContentModule } from './modules/site-content/site-content.module';
@@ -127,6 +128,7 @@ import { ExpansionCitiesModule } from './modules/expansion-cities/expansion-citi
     CareersModule,
     InquiriesModule,
     PublicModule,
+    WaitlistModule,
 
     // CMS
     SiteContentModule,
