@@ -16,25 +16,25 @@ import { OrdersService } from './orders.service';
 export class OrdersController {
   constructor(private readonly service: OrdersService) {}
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.STAFF)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Get()
   list(@Query() q: { status?: OrderStatus }) {
     return this.service.list(q);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.STAFF, UserRole.SUPPLIER)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Get(':id')
   detail(@Param('id') id: string) {
     return this.service.detail(id);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.STAFF)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Post()
   create(@Body() dto: any, @CurrentUser('id') userId: string) {
     return this.service.create({ ...dto, createdById: userId });
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.STAFF, UserRole.SUPPLIER)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Post(':id/status')
   setStatus(@Param('id') id: string, @Body() body: { status: OrderStatus }) {
     return this.service.setStatus(id, body.status);

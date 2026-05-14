@@ -15,13 +15,13 @@ import { InventoryService } from './inventory.service';
 export class InventoryController {
   constructor(private readonly service: InventoryService) {}
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.STAFF)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Get('items')
   listItems(@Query() q: any) {
     return this.service.listItems(q);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.STAFF)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Get('items/:id')
   itemDetail(@Param('id') id: string) {
     return this.service.itemDetail(id);
@@ -45,25 +45,25 @@ export class InventoryController {
     return this.service.removeItem(id);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.STAFF)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Post('movements')
   recordMovement(@Body() dto: any) {
     return this.service.recordMovement(dto);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.STAFF, UserRole.RECEPTIONIST)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Post('allocations')
   allocate(@Body() dto: any) {
     return this.service.allocate(dto);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.STAFF, UserRole.RECEPTIONIST)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Post('allocations/:id/return')
   returnAllocation(@Param('id') id: string) {
     return this.service.returnAllocation(id);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.STAFF, UserRole.RECEPTIONIST)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get('allocations')
   listAllocations(@Query() q: any) {
     return this.service.listAllocations(q);

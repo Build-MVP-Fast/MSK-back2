@@ -16,13 +16,13 @@ import { TasksService } from './tasks.service';
 export class TasksController {
   constructor(private readonly service: TasksService) {}
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST, UserRole.STAFF)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get()
   list(@Query() q: any) {
     return this.service.list(q);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST, UserRole.STAFF)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get(':id')
   detail(@Param('id') id: string) {
     return this.service.detail(id);
@@ -34,13 +34,13 @@ export class TasksController {
     return this.service.create({ ...dto, createdById: userId });
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST, UserRole.STAFF)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: any) {
     return this.service.update(id, dto);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST, UserRole.STAFF)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Post(':id/status')
   setStatus(@Param('id') id: string, @Body() body: { status: TaskStatus }) {
     return this.service.setStatus(id, body.status);

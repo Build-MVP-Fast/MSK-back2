@@ -15,13 +15,13 @@ import { DepartmentsService } from './departments.service';
 export class DepartmentsController {
   constructor(private readonly service: DepartmentsService) {}
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST, UserRole.STAFF)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get()
   list(@Query('companyId') companyId?: string) {
     return this.service.list(companyId);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST, UserRole.STAFF)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get(':id')
   detail(@Param('id') id: string) {
     return this.service.detail(id);

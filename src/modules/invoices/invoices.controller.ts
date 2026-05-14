@@ -16,15 +16,15 @@ import { InvoicesService } from './invoices.service';
 export class InvoicesController {
   constructor(private readonly service: InvoicesService) {}
 
-  @Roles(UserRole.GUEST, UserRole.WEB_GUEST, UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
+  @Roles(UserRole.WEB_GUEST, UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get()
   list(@CurrentUser('id') userId: string, @CurrentUser('role') role: UserRole) {
-    return role === UserRole.GUEST || role === UserRole.WEB_GUEST
+    return role === UserRole.WEB_GUEST
       ? this.service.list(userId)
       : this.service.list();
   }
 
-  @Roles(UserRole.GUEST, UserRole.WEB_GUEST, UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
+  @Roles(UserRole.WEB_GUEST, UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get(':id')
   detail(@Param('id') id: string) {
     return this.service.detail(id);

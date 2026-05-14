@@ -15,7 +15,7 @@ import { ScheduleService } from './schedule.service';
 export class ScheduleController {
   constructor(private readonly service: ScheduleService) {}
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST, UserRole.STAFF)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get()
   list(@Query() q: any) {
     return this.service.list({

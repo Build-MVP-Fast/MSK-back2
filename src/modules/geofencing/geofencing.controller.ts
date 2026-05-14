@@ -16,13 +16,13 @@ import { GeofencingService } from './geofencing.service';
 export class GeofencingController {
   constructor(private readonly service: GeofencingService) {}
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST, UserRole.STAFF)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get()
   list(@Query('propertyId') propertyId?: string) {
     return this.service.list(propertyId);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST, UserRole.STAFF)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get(':id')
   detail(@Param('id') id: string) {
     return this.service.detail(id);

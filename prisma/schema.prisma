@@ -26,14 +26,18 @@ datasource db {
 //  ENUMS
 // ============================================================================
 
+// 4 roles cover everything in the current product:
+//   WEB_GUEST    — public-website customers (book, view profile)
+//   RECEPTIONIST — front-desk: bookings, calendar, view applications
+//   ADMIN        — operational admin: everything ops + content
+//   SUPER_USER   — owner: ADMIN powers + hard-deletes + master config
+// GUEST / STAFF / SUPPLIER were dropped as they were never used in the
+// admin or website flow.
 enum UserRole {
-  GUEST              // App guest (PIN-based auth)
-  WEB_GUEST          // Website guest (email/password auth)
+  WEB_GUEST
   RECEPTIONIST
-  STAFF
   ADMIN
   SUPER_USER
-  SUPPLIER
 }
 
 enum AuthProvider {
@@ -1747,4 +1751,24 @@ model ExpansionCity {
 
   @@index([ordering])
   @@index([isPublished])
+}
+
+// Early-access signups from the msk-marketing landing page ("Guestbook").
+// Captured before launch so the team can pre-screen and reach out to
+// candidates who match the partner profile. Email is unique to prevent
+// duplicate signups; we soft-handle re-submits by updating the existing
+// row rather than throwing.
+model WaitlistEntry {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  fullName     String?
+  role         String?  // "Hotelier" | "Resident manager" | "STR host" | "Concierge" | "Other"
+  propertyName String?
+  phone        String?
+  source       String?  // "hero" | "footer" — which form on the marketing page submitted it
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([createdAt])
 }

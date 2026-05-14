@@ -16,16 +16,16 @@ import { RequestsService } from './requests.service';
 export class RequestsController {
   constructor(private readonly service: RequestsService) {}
 
-  @Roles(UserRole.GUEST, UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST, UserRole.STAFF)
+  @Roles(UserRole.WEB_GUEST, UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get()
   list(@Query() q: any, @CurrentUser('role') role: UserRole, @CurrentUser('id') userId: string) {
-    if (role === UserRole.GUEST) {
+    if (role === UserRole.WEB_GUEST) {
       return this.service.list({ ...q, requestedById: userId });
     }
     return this.service.list(q);
   }
 
-  @Roles(UserRole.GUEST, UserRole.RECEPTIONIST)
+  @Roles(UserRole.WEB_GUEST, UserRole.RECEPTIONIST)
   @Post()
   create(@Body() dto: any, @CurrentUser('id') userId: string) {
     return this.service.create({ ...dto, requestedById: userId });
@@ -37,7 +37,7 @@ export class RequestsController {
     return this.service.update(id, dto);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST, UserRole.STAFF)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Post(':id/resolve')
   resolve(@Param('id') id: string) {
     return this.service.resolve(id);
