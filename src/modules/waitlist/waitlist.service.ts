@@ -5,9 +5,11 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 
 export interface CreateWaitlistInput {
   email: string;
-  fullName?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
   role?: string | null;
-  propertyName?: string | null;
+  propertyCount?: number | null;
+  unitCount?: number | null;
   phone?: string | null;
   source?: string | null;
 }
@@ -21,25 +23,50 @@ export class WaitlistService {
    * exists we update the latest details rather than throwing. The
    * marketing form is the only caller and a 200 response keeps the UX
    * silent for repeat submitters.
+   *
+   * `fullName` is derived from first + last so legacy admin views that
+   * read it (and old rows) display cleanly without a per-entry branch.
    */
   async signup(input: CreateWaitlistInput) {
     const email = input.email.trim().toLowerCase();
+    const firstName = input.firstName?.trim() || null;
+    const lastName = input.lastName?.trim() || null;
+    const fullName =
+      firstName || lastName
+        ? [firstName, lastName].filter(Boolean).join(' ').trim() || null
+        : null;
+
     const data = {
       email,
-      fullName: input.fullName?.trim() || null,
+      firstName,
+      lastName,
+      fullName,
       role: input.role?.trim() || null,
-      propertyName: input.propertyName?.trim() || null,
+      propertyCount:
+        input.propertyCount === null || input.propertyCount === undefined
+          ? null
+          : input.propertyCount,
+      unitCount:
+        input.unitCount === null || input.unitCount === undefined
+          ? null
+          : input.unitCount,
       phone: input.phone?.trim() || null,
       source: input.source?.trim() || null,
     };
+
     return this.prisma.waitlistEntry.upsert({
       where: { email },
       create: data,
       update: {
-        // Preserve original source; only update mutable details.
+        // Preserve original source; only update mutable details. Use
+        // `undefined` rather than `null` so an unsent field doesn't
+        // wipe an existing value on re-submit.
+        firstName: data.firstName ?? undefined,
+        lastName: data.lastName ?? undefined,
         fullName: data.fullName ?? undefined,
         role: data.role ?? undefined,
-        propertyName: data.propertyName ?? undefined,
+        propertyCount: data.propertyCount ?? undefined,
+        unitCount: data.unitCount ?? undefined,
         phone: data.phone ?? undefined,
       },
     });
@@ -50,6 +77,8 @@ export class WaitlistService {
       ? {
           OR: [
             { email: { contains: q, mode: 'insensitive' } },
+            { firstName: { contains: q, mode: 'insensitive' } },
+            { lastName: { contains: q, mode: 'insensitive' } },
             { fullName: { contains: q, mode: 'insensitive' } },
             { propertyName: { contains: q, mode: 'insensitive' } },
           ],

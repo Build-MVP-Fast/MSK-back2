@@ -1759,16 +1759,32 @@ model ExpansionCity {
 // duplicate signups; we soft-handle re-submits by updating the existing
 // row rather than throwing.
 model WaitlistEntry {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  fullName     String?
-  role         String?  // "Hotelier" | "Resident manager" | "STR host" | "Concierge" | "Other"
-  propertyName String?
-  phone        String?
-  source       String?  // "hero" | "footer" — which form on the marketing page submitted it
-  notes        String?  @db.Text
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String   @id @default(uuid())
+  email         String   @unique
+  firstName     String?
+  lastName      String?
+  // Legacy single-field name from the original form. New form sends
+  // firstName + lastName; we still write a combined fullName too so
+  // existing admin views keep working without conditional rendering.
+  fullName      String?
+  // "Owner" | "Operator" | "Owner/Operator". Older entries may have
+  // the original taxonomy ("Hotelier", "STR host", ...). Kept as a
+  // free string so legacy rows still display.
+  role          String?
+  // Number of properties they own / manage.
+  propertyCount Int?
+  // Total units across those properties. A value of 1 represents the
+  // "single unit" case the form copy mentions — no separate flag needed.
+  unitCount     Int?
+  // Legacy: original form had a free-text "property name" field. Kept
+  // so we don't lose any data already collected; not used by the new
+  // form.
+  propertyName  String?
+  phone         String?
+  source        String?  // "hero" | "footer" — which form on the marketing page submitted it
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([createdAt])
 }

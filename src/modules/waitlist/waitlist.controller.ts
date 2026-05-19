@@ -14,9 +14,12 @@ import { UserRole } from '@prisma/client';
 import {
   IsEmail,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 
@@ -30,13 +33,7 @@ import { WaitlistService } from './waitlist.service';
 // Roles offered on the msk-marketing form. Keeping the validator strict
 // — anything outside this list is rejected so we don't accumulate junk
 // values in the admin list later.
-const ALLOWED_ROLES = [
-  'Hotelier',
-  'Resident manager',
-  'STR host',
-  'Concierge',
-  'Other',
-] as const;
+const ALLOWED_ROLES = ['Owner', 'Operator', 'Owner/Operator'] as const;
 
 class CreateWaitlistDto {
   @IsEmail()
@@ -44,17 +41,32 @@ class CreateWaitlistDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(200)
-  fullName?: string;
+  @MaxLength(120)
+  firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  lastName?: string;
 
   @IsOptional()
   @IsIn(ALLOWED_ROLES)
   role?: (typeof ALLOWED_ROLES)[number];
 
+  // Sanity caps — no individual is signing up to manage > 10k properties
+  // or > 1M units. Rejecting wildly large numbers keeps the admin list
+  // honest without being annoying for real submissions.
   @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  propertyName?: string;
+  @IsInt()
+  @Min(0)
+  @Max(10000)
+  propertyCount?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1000000)
+  unitCount?: number;
 
   @IsOptional()
   @IsString()
