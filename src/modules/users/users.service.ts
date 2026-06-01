@@ -70,6 +70,8 @@ export class UsersService {
 
   /** Soft-delete (sets deletedAt + isActive=false). */
   async deactivate(id: string) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('User not found');
     return this.prisma.user.update({
       where: { id },
       data: { isActive: false, deletedAt: new Date() },

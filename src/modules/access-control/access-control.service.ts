@@ -1,8 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { AccessGrantStatus, Prisma } from '@prisma/client';
+import { AccessGrantStatus } from '@prisma/client';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
 
+// The RBAC helpers that used to live here (listRoles / createRole /
+// attachPermission / detachPermission / assignRole) were retired when
+// the granular feature-permission system replaced the old RoleDefinition
+// scaffold. Per-role permission management is now in PermissionsModule;
+// per-user role assignment is handled directly on the User row.
 @Injectable()
 export class AccessControlService {
   constructor(private readonly prisma: PrismaService) {}
@@ -34,44 +39,6 @@ export class AccessControlService {
     return this.prisma.accessGrant.update({
       where: { id },
       data: { status: AccessGrantStatus.REVOKED },
-    });
-  }
-
-  /** RBAC helpers. */
-  listRoles() {
-    return this.prisma.roleDefinition.findMany({ include: { permissions: { include: { permission: true } } } });
-  }
-
-  createRole(dto: Prisma.RoleDefinitionCreateInput) {
-    return this.prisma.roleDefinition.create({ data: dto });
-  }
-
-  attachPermission(roleId: string, permissionId: string) {
-    return this.prisma.rolePermission.upsert({
-      where: { roleId_permissionId: { roleId, permissionId } },
-      create: { roleId, permissionId },
-      update: {},
-    });
-  }
-
-  detachPermission(roleId: string, permissionId: string) {
-    return this.prisma.rolePermission.delete({
-      where: { roleId_permissionId: { roleId, permissionId } },
-    });
-  }
-
-  assignRole(userId: string, roleId: string, scope?: { type: string; id?: string }) {
-    return this.prisma.userRoleAssignment.upsert({
-      where: {
-        userId_roleId_scopeType_scopeId: {
-          userId,
-          roleId,
-          scopeType: scope?.type ?? null as any,
-          scopeId: scope?.id ?? null as any,
-        },
-      },
-      create: { userId, roleId, scopeType: scope?.type, scopeId: scope?.id },
-      update: {},
     });
   }
 }

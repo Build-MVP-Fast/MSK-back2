@@ -13,6 +13,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
 import { Public } from '../../common/decorators/public.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -55,6 +56,7 @@ export class AvailabilityController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
+  @RequirePermission('availability.update')
   @Patch('calendar')
   bulkUpsertCalendar(@Body() dto: BulkUpsertCalendarDto) {
     return this.service.bulkUpsertCalendar(
@@ -77,6 +79,7 @@ export class AvailabilityController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
+  @RequirePermission('availability.update')
   @Post('block')
   block(@Body() dto: CreateAvailabilityBlockDto) {
     return this.service.blockDates({
@@ -104,6 +107,7 @@ export class AvailabilityController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
+  @RequirePermission('availability.update')
   @Delete('blocks/:id')
   removeBlock(@Param('id') id: string) {
     return this.service.unblockDates(id);

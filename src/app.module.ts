@@ -57,6 +57,8 @@ import { CareersModule } from './modules/careers/careers.module';
 import { InquiriesModule } from './modules/inquiries/inquiries.module';
 import { PublicModule } from './modules/public/public.module';
 import { WaitlistModule } from './modules/waitlist/waitlist.module';
+import { PermissionsModule } from './modules/permissions/permissions.module';
+import { PermissionsGuard } from './common/guards/permissions.guard';
 
 // CMS (admin-editable website content)
 import { SiteContentModule } from './modules/site-content/site-content.module';
@@ -64,6 +66,7 @@ import { FaqsModule } from './modules/faqs/faqs.module';
 import { HouseRulesModule } from './modules/house-rules/house-rules.module';
 import { TestimonialsModule } from './modules/testimonials/testimonials.module';
 import { ExpansionCitiesModule } from './modules/expansion-cities/expansion-cities.module';
+import { TestingLocationsModule } from './modules/testing-locations/testing-locations.module';
 
 @Module({
   imports: [
@@ -136,11 +139,22 @@ import { ExpansionCitiesModule } from './modules/expansion-cities/expansion-citi
     HouseRulesModule,
     TestimonialsModule,
     ExpansionCitiesModule,
+    TestingLocationsModule,
+
+    // Granular permissions (must come AFTER UsersModule + AuthModule so
+    // the seed routine can read existing users, but order in the imports
+    // array is only relevant when modules depend on each other through
+    // providers — @Global ensures the service is injectable everywhere).
+    PermissionsModule,
   ],
   controllers: [AppController],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // PermissionsGuard runs on every route. If a route doesn't declare
+    // @RequirePermission(...) it passes through (opt-in), so existing
+    // @Roles-gated routes keep working until we migrate them.
+    { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
 })
 export class AppModule {}

@@ -357,8 +357,9 @@ model User {
   devices          Device[]
   notificationTokens NotificationToken[]
 
-  // RBAC
-  userRoles UserRoleAssignment[]
+  // Granular permission overrides (the role gives a default; these
+  // grant/revoke specific codes on top of it).
+  permissionOverrides UserPermissionOverride[]
 
   // Activity
   bookingsAsGuest    Booking[]            @relation("BookingGuest")
@@ -472,49 +473,60 @@ model Device {
 //  RBAC  (fine-grained permissions on top of UserRole)
 // ============================================================================
 
-model RoleDefinition {
-  id          String   @id @default(uuid())
-  key         String   @unique          // e.g. "admin", "receptionist"
-  name        String
+// (Legacy `RoleDefinition` / `UserRoleAssignment` / old Permission and
+// RolePermission models were removed — they were scaffolding for an
+// unused RBAC sketch. The new feature-permission system below replaces
+// them entirely; see Permission / RolePermission / UserPermissionOverride.)
+
+// Catalog of every feature-level permission in the system. Seeded from
+// code (`permissions/permission-catalog.ts`) so the admin matrix can be
+// built from data instead of a hardcoded list. `code` is the stable
+// business key checked at request time; `label` / `group` / `description`
+// are display-only.
+model Permission {
+  code        String   @id
+  label       String
+  group       String
   description String?
-  isSystem    Boolean  @default(false)
+  ordering    Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  permissions     RolePermission[]
-  userAssignments UserRoleAssignment[]
+  rolePermissions RolePermission[]
+  userOverrides   UserPermissionOverride[]
+
+  @@index([group])
 }
 
-model Permission {
-  id          String   @id @default(uuid())
-  key         String   @unique          // e.g. "property.create", "booking.manage"
-  name        String
-  description String?
-  createdAt   DateTime @default(now())
-
-  roles RolePermission[]
-}
-
+// Default permissions for each role. The matrix UI edits this table.
 model RolePermission {
-  roleId       String
-  role         RoleDefinition @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permissionId String
-  permission   Permission     @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  id             String     @id @default(cuid())
+  role           UserRole
+  permissionCode String
+  permission     Permission @relation(fields: [permissionCode], references: [code], onDelete: Cascade)
+  createdAt      DateTime   @default(now())
 
-  @@id([roleId, permissionId])
+  @@unique([role, permissionCode])
+  @@index([role])
 }
 
-model UserRoleAssignment {
-  id        String         @id @default(uuid())
-  userId    String
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  roleId    String
-  role      RoleDefinition @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  scopeType String?        // "company" | "property" | "department" | null (global)
-  scopeId   String?
-  createdAt DateTime       @default(now())
+// Per-user grant or revoke that overrides the role default. `granted=true`
+// means "give this user this permission regardless of their role";
+// `granted=false` means "revoke this permission from this user even if
+// their role would otherwise have it". Resolution at request time:
+//   effective = role permissions + grants − revokes
+model UserPermissionOverride {
+  id             String     @id @default(cuid())
+  userId         String
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionCode String
+  permission     Permission @relation(fields: [permissionCode], references: [code], onDelete: Cascade)
+  granted        Boolean
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
-  @@unique([userId, roleId, scopeType, scopeId])
+  @@unique([userId, permissionCode])
+  @@index([userId])
 }
 
 // ============================================================================
@@ -1751,6 +1763,27 @@ model ExpansionCity {
 
   @@index([ordering])
   @@index([isPublished])
+}
+
+// Live testing-pilot sites shown on the marketing guestbook map. Distinct
+// from ExpansionCity (planned/future cities) — these are where the platform
+// is *currently* being piloted and the marketing site should plot them.
+model TestingLocation {
+  id          String   @id @default(cuid())
+  label       String
+  city        String
+  country     String
+  latitude    Float
+  longitude   Float
+  status      String   @default("ACTIVE")
+  description String?
+  ordering    Int      @default(0)
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isPublished])
+  @@index([ordering])
 }
 
 // Early-access signups from the msk-marketing landing page ("Guestbook").

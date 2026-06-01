@@ -438,6 +438,84 @@ export class BookingsService {
   }
 
   /**
+   * Move a booking's check-in/out window. Used by the reservations
+   * calendar's horizontal drag. Reuses the same overlap-check as
+   * assignRoom: if the booking has a pinned room, a date shift must not
+   * collide with another active booking on that room.
+   *
+   * `nights` is recomputed but `totalAmount` is intentionally LEFT AS-IS —
+   * dragging a booking shouldn't silently re-price; the operator should
+   * confirm the new total in the booking editor before billing.
+   */
+  async moveDates(
+    bookingId: string,
+    checkInRaw: string,
+    checkOutRaw: string,
+  ) {
+    const checkIn = new Date(checkInRaw);
+    const checkOut = new Date(checkOutRaw);
+    if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) {
+      throw new BadRequestException('checkIn and checkOut must be valid dates.');
+    }
+    if (checkOut <= checkIn) {
+      throw new BadRequestException('checkOut must be after checkIn.');
+    }
+
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        id: true,
+        status: true,
+        roomId: true,
+        propertyId: true,
+        roomTypeId: true,
+      },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    if (
+      booking.status === BookingStatus.CANCELLED ||
+      booking.status === BookingStatus.CHECKED_OUT
+    ) {
+      throw new BadRequestException(
+        `Cannot move a ${booking.status.toLowerCase().replace('_', ' ')} booking.`,
+      );
+    }
+
+    if (booking.roomId) {
+      const conflict = await this.prisma.booking.findFirst({
+        where: {
+          id: { not: bookingId },
+          roomId: booking.roomId,
+          status: { notIn: [BookingStatus.CANCELLED, BookingStatus.NO_SHOW] },
+          AND: [
+            { checkIn: { lt: checkOut } },
+            { checkOut: { gt: checkIn } },
+          ],
+        },
+        select: { reference: true },
+      });
+      if (conflict) {
+        throw new ConflictException(
+          `Those dates overlap booking ${conflict.reference} on the same room.`,
+        );
+      }
+    }
+
+    const nights = Math.max(
+      1,
+      Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000),
+    );
+
+    await this.prisma.booking.update({
+      where: { id: bookingId },
+      data: { checkIn, checkOut, nights },
+      select: { id: true },
+    });
+
+    return this.detail(bookingId);
+  }
+
+  /**
    * Calendar/Gantt view: every room in the property + every active
    * booking touching the [from, to) window, returned in a shape the UI
    * can drop straight into rows × days. Unassigned bookings come back

@@ -1,5 +1,6 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { UserRole } from '@prisma/client';
 import { Request } from 'express';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -9,6 +10,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AuthService } from './auth.service';
 import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
+import { PermissionsService } from '../permissions/permissions.service';
 import {
   LoginEmailDto,
   LoginPinDto,
@@ -30,6 +32,7 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly otp: OtpService,
     private readonly tokens: TokenService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   // ---- Website (email/password) -------------------------------------------
@@ -136,6 +139,34 @@ export class AuthController {
   @Post('me')
   me(@CurrentUser() user: unknown) {
     return user;
+  }
+
+  /**
+   * Effective permission codes for the currently logged-in user — the
+   * admin UI calls this on boot and caches it so buttons / nav items
+   * can be hidden client-side without polling for every check.
+   *
+   * SUPER_USER is reported with the literal '*' marker so the frontend
+   * helper can short-circuit (every `has(code)` returns true) without
+   * needing to know the full catalog.
+   */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('me/permissions')
+  async myPermissions(
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') role: UserRole,
+    @CurrentUser('primaryRole') primaryRole: UserRole | undefined,
+  ) {
+    const effective = role === 'SUPER_USER' || primaryRole === 'SUPER_USER'
+      ? ['*']
+      : Array.from(
+          await this.permissions.effectivePermissions(
+            userId,
+            primaryRole ?? role,
+          ),
+        ).sort();
+    return { codes: effective };
   }
 
   /**

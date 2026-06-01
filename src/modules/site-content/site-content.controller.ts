@@ -14,6 +14,7 @@ import { UserRole } from '@prisma/client';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -45,6 +46,7 @@ export class SiteContentController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
+  @RequirePermission('content.site.read')
   @Get()
   listAll() {
     return this.service.listAll();
@@ -53,6 +55,7 @@ export class SiteContentController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
+  @RequirePermission('content.site.update')
   @Patch(':key')
   update(
     @Param('key') key: string,

@@ -26,6 +26,8 @@
     "docker:down": "docker-compose down"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.620.0",
+    "@aws-sdk/s3-request-presigner": "^3.620.0",
     "@nestjs/common": "^10.4.0",
     "@nestjs/config": "^3.2.3",
     "@nestjs/core": "^10.4.0",
@@ -38,9 +40,6 @@
     "@nestjs/throttler": "^6.2.1",
     "@nestjs/websockets": "^10.4.0",
     "@prisma/client": "^5.18.0",
-    "prisma": "^5.18.0",
-    "@aws-sdk/client-s3": "^3.620.0",
-    "@aws-sdk/s3-request-presigner": "^3.620.0",
     "argon2": "^0.40.3",
     "bullmq": "^5.12.0",
     "class-transformer": "^0.5.1",
@@ -48,6 +47,7 @@
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.6",
     "dayjs": "^1.11.13",
+    "exceljs": "^4.4.0",
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
     "ioredis": "^5.4.1",
@@ -57,6 +57,7 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
+    "prisma": "^5.18.0",
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
@@ -67,8 +68,8 @@
     "zod": "^3.23.8"
   },
   "optionalDependencies": {
-    "@img/sharp-linuxmusl-x64": "^0.33.5",
-    "@img/sharp-linux-x64": "^0.33.5"
+    "@img/sharp-linux-x64": "^0.33.5",
+    "@img/sharp-linuxmusl-x64": "^0.33.5"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.0",

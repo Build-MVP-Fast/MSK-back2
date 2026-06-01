@@ -82,6 +82,28 @@ export const SITE_CONTENT_SEED: SiteContentSeed[] = [
     type: SiteContentType.PLAIN,
     value: 'Explore Properties',
   },
+  {
+    key: 'hero.image1',
+    group: 'hero',
+    label: 'Hero — Image 1 (top of stack)',
+    type: SiteContentType.IMAGE_URL,
+    value: '/assets/images/hero-stack1.webp',
+    description: 'Front-most photo in the stacked carousel on the home page.',
+  },
+  {
+    key: 'hero.image2',
+    group: 'hero',
+    label: 'Hero — Image 2 (middle of stack)',
+    type: SiteContentType.IMAGE_URL,
+    value: '/assets/images/hero-stack2.webp',
+  },
+  {
+    key: 'hero.image3',
+    group: 'hero',
+    label: 'Hero — Image 3 (back of stack)',
+    type: SiteContentType.IMAGE_URL,
+    value: '/assets/images/hero-stack3.webp',
+  },
 
   // ── Home / Discover Residences ─────────────────────────────────────────
   {
@@ -694,14 +716,15 @@ export const SITE_CONTENT_SEED: SiteContentSeed[] = [
     group: 'rules',
     label: 'Rules — Badge',
     type: SiteContentType.PLAIN,
-    value: 'Rules & Maybes',
+    value: 'Rules and Maybes',
   },
   {
     key: 'rules.title',
     group: 'rules',
     label: 'Rules — Title',
     type: SiteContentType.PLAIN,
-    value: 'House Rules & Guidelines',
+    value: 'Rules and *Maybes*',
+    description: 'Wrap a word in *asterisks* to render it in the script accent font.',
   },
   {
     key: 'rules.body',
@@ -709,7 +732,7 @@ export const SITE_CONTENT_SEED: SiteContentSeed[] = [
     label: 'Rules — Body',
     type: SiteContentType.RICH,
     value:
-      "We've put together a few simple guidelines to help make your stay enjoyable, safe, and hassle-free for you and others.",
+      "Common questions, house rules, and the things our guests ask most. Can't find what you're looking for? Reach out and we'll help.",
   },
 
   // ── Footer ─────────────────────────────────────────────────────────────
@@ -730,9 +753,25 @@ export const SITE_CONTENT_SEED: SiteContentSeed[] = [
   {
     key: 'footer.legal.legal',
     group: 'footer',
-    label: 'Footer — Legal link',
+    label: 'Footer — Terms & Conditions link',
     type: SiteContentType.PLAIN,
-    value: 'Legal',
+    value: 'Terms & Conditions',
+  },
+  {
+    key: 'footer.social.linkedin.url',
+    group: 'footer',
+    label: 'Footer — LinkedIn URL',
+    type: SiteContentType.PLAIN,
+    value: '#',
+    description: 'Paste the full LinkedIn profile URL. Default "#" is a no-op so it never 404s.',
+  },
+  {
+    key: 'footer.social.instagram.url',
+    group: 'footer',
+    label: 'Footer — Instagram URL',
+    type: SiteContentType.PLAIN,
+    value: '#',
+    description: 'Paste the full Instagram profile URL. Default "#" is a no-op so it never 404s.',
   },
   {
     key: 'footer.heading.quick-links',
@@ -816,7 +855,7 @@ export const SITE_CONTENT_SEED: SiteContentSeed[] = [
     group: 'footer',
     label: 'Footer — Quick Link: Rules',
     type: SiteContentType.PLAIN,
-    value: "Rules & Maybe's",
+    value: 'Rules and Maybes',
   },
   {
     key: 'footer.quick.support',

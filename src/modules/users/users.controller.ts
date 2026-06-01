@@ -14,6 +14,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -41,6 +42,7 @@ export class UsersController {
    * privileges by creating a SUPER_USER teammate.
    */
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
+  @RequirePermission('users.create')
   @Post()
   create(@Body() dto: CreateUserDto, @CurrentUser('role') callerRole: UserRole) {
     if (dto.role === UserRole.SUPER_USER && callerRole !== UserRole.SUPER_USER) {
@@ -68,12 +70,14 @@ export class UsersController {
   }
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
+  @RequirePermission('users.update')
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: any) {
     return this.service.update(id, dto);
   }
 
   @Roles(UserRole.SUPER_USER)
+  @RequirePermission('users.delete')
   @Delete(':id')
   deactivate(@Param('id') id: string) {
     return this.service.deactivate(id);

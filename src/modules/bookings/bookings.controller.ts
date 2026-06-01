@@ -13,6 +13,7 @@ import { BookingSource, UserRole } from '@prisma/client';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -154,6 +155,7 @@ export class BookingsController {
     UserRole.RECEPTIONIST,
     UserRole.WEB_GUEST,
   )
+  @RequirePermission('bookings.cancel')
   @Post(':id/cancel')
   cancel(@Param('id') id: string, @Body() body: CancelBookingDto) {
     return this.service.cancel(id, body.reason);
@@ -162,14 +164,34 @@ export class BookingsController {
   /**
    * Pin (or unassign) a specific physical room on an active booking.
    * Routed BEFORE the generic `:id` PATCH so the validated DTO and the
-   * domain-aware service path always handle assignments.
+   * domain-aware service path always handle assignments. Calendar
+   * drag-to-different-room uses this same endpoint, so the permission
+   * gate is `bookings.move-room` (vertical drag).
    */
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
+  @RequirePermission('bookings.move-room')
   @Patch(':id/assign-room')
   assignRoom(@Param('id') id: string, @Body() dto: AssignRoomDto) {
     return this.service.assignRoom(id, dto.roomId ?? null);
+  }
+
+  /**
+   * Move a booking's check-in / check-out dates. Calendar
+   * drag-horizontally uses this endpoint; the permission gate is
+   * `bookings.move-dates`. Body: { checkIn: 'YYYY-MM-DD', checkOut: 'YYYY-MM-DD' }.
+   */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
+  @RequirePermission('bookings.move-dates')
+  @Patch(':id/dates')
+  moveDates(
+    @Param('id') id: string,
+    @Body() body: { checkIn: string; checkOut: string },
+  ) {
+    return this.service.moveDates(id, body.checkIn, body.checkOut);
   }
 
   @ApiBearerAuth()

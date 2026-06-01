@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
@@ -9,6 +18,9 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 
 import { AccessControlService } from './access-control.service';
 
+// Legacy /roles + /users/:id/roles endpoints were removed when the
+// granular permission system superseded them. Role + permission
+// management now lives in PermissionsModule (/permissions).
 @ApiTags('access-control')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -32,39 +44,5 @@ export class AccessControlController {
   @Delete('grants/:id')
   revoke(@Param('id') id: string) {
     return this.service.revoke(id);
-  }
-
-  @Roles(UserRole.SUPER_USER)
-  @Get('roles')
-  listRoles() {
-    return this.service.listRoles();
-  }
-
-  @Roles(UserRole.SUPER_USER)
-  @Post('roles')
-  createRole(@Body() dto: any) {
-    return this.service.createRole(dto);
-  }
-
-  @Roles(UserRole.SUPER_USER)
-  @Post('roles/:roleId/permissions/:permissionId')
-  attachPermission(@Param('roleId') roleId: string, @Param('permissionId') permissionId: string) {
-    return this.service.attachPermission(roleId, permissionId);
-  }
-
-  @Roles(UserRole.SUPER_USER)
-  @Delete('roles/:roleId/permissions/:permissionId')
-  detachPermission(@Param('roleId') roleId: string, @Param('permissionId') permissionId: string) {
-    return this.service.detachPermission(roleId, permissionId);
-  }
-
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
-  @Post('users/:userId/roles/:roleId')
-  assignRole(
-    @Param('userId') userId: string,
-    @Param('roleId') roleId: string,
-    @Body() body: { scopeType?: string; scopeId?: string },
-  ) {
-    return this.service.assignRole(userId, roleId, body.scopeType ? { type: body.scopeType, id: body.scopeId } : undefined);
   }
 }
