@@ -26,6 +26,9 @@ import { JwtStrategy } from './strategies/jwt.strategy';
   ],
   controllers: [AuthController],
   providers: [AuthService, OtpService, TokenService, JwtStrategy],
-  exports: [AuthService, TokenService, OtpService],
+  // JwtModule is re-exported so other modules (e.g. BookingsModule's
+  // check-in token guard) can inject JwtService without redeclaring the
+  // signing key or TTL.
+  exports: [AuthService, TokenService, OtpService, JwtModule],
 })
 export class AuthModule {}

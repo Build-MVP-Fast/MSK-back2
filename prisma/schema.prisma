@@ -922,6 +922,20 @@ model Booking {
   cancelledAt     DateTime?
   checkedInAt     DateTime?
   checkedOutAt    DateTime?
+
+  // ── Mobile guest-wizard check-in fields ────────────────────────────
+  // Populated by the guest-wizard submit; all optional so existing
+  // bookings created via the website / channel managers stay valid.
+  arrivalTime         String?    // HH:mm the guest expects to arrive
+  wantsRoomTypeChange Boolean?
+  requestedRoomType   String?
+  physicalVerifyChoice String?   // "NOW" | "LATER"
+  addressByCode       Boolean?   // true → greet by code; false → by name
+  checkInCode         String?    @unique  // 6-digit, shown to reception
+  signatureUrl        String?
+  additionalInfoText  String?
+  acceptedTermsAt     DateTime?
+
   createdById     String?
   createdBy       User?         @relation("BookingCreatedBy", fields: [createdById], references: [id])
   metadata        Json?
@@ -951,6 +965,8 @@ model BookingGuest {
   isPrimary   Boolean  @default(false)
   documentNumber String?
   dateOfBirth DateTime?
+  hasKids     Boolean?
+  kidsCount   Int?
   createdAt   DateTime @default(now())
 
   @@index([bookingId])

@@ -9,13 +9,16 @@ import {
   AvailabilityBlockReason,
   BookingSource,
   BookingStatus,
+  OtpPurpose,
   Prisma,
 } from '@prisma/client';
 import { nanoid } from 'nanoid';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AvailabilityService } from '../availability/availability.service';
+import { OtpService } from '../auth/otp.service';
 import { EmailService } from '../notifications/email.service';
+import type { CheckInSubmitDto } from './check-in.dto';
 
 interface CreateBookingInput {
   propertyId: string;
@@ -55,6 +58,7 @@ export class BookingsService {
     private readonly prisma: PrismaService,
     private readonly availability: AvailabilityService,
     private readonly email: EmailService,
+    private readonly otp: OtpService,
   ) {}
 
   /**
@@ -341,6 +345,234 @@ export class BookingsService {
       where: { id },
       data: { status: BookingStatus.CHECKED_OUT, checkedOutAt: new Date() },
     });
+  }
+
+  // ── Mobile guest-wizard check-in ───────────────────────────────────────
+
+  /**
+   * Resolve a booking by reference + last-name and send an OTP to the
+   * contact on file. Used by the wizard's first screen. Errors are
+   * intentionally generic so we don't leak which half (reference or
+   * lastName) was wrong.
+   */
+  async checkInStart(reference: string, lastName: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { reference },
+      include: { guestUser: true },
+    });
+    if (!booking) throw new NotFoundException('Reservation not found');
+
+    const lastNameMatch =
+      booking.guestLastName?.toLowerCase() === lastName.toLowerCase() ||
+      booking.guestUser?.lastName?.toLowerCase() === lastName.toLowerCase();
+    if (!lastNameMatch) throw new NotFoundException('Reservation not found');
+
+    const destination = booking.guestEmail ?? booking.guestPhone;
+    if (!destination) {
+      throw new BadRequestException('No contact on file for reservation');
+    }
+
+    await this.otp.send({
+      destination,
+      channel: booking.guestEmail ? 'email' : 'sms',
+      purpose: OtpPurpose.RESERVATION_ENQUIRY,
+      userId: booking.guestUserId ?? undefined,
+    });
+
+    return {
+      otpSent: true,
+      bookingId: booking.id,
+      contactHint: maskContact(destination),
+    };
+  }
+
+  /**
+   * Consume the OTP from `checkInStart` and return a summary of the booking
+   * plus a stable 6-digit `checkInCode` (generated on first verify, kept on
+   * subsequent re-verifies). The controller wraps a JWT around the booking
+   * id; this method only handles persistence + lookup.
+   */
+  async checkInVerify(reference: string, lastName: string, code: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { reference },
+      include: {
+        guestUser: true,
+        property: { select: { id: true, name: true } },
+      },
+    });
+    if (!booking) throw new NotFoundException('Reservation not found');
+
+    const lastNameMatch =
+      booking.guestLastName?.toLowerCase() === lastName.toLowerCase() ||
+      booking.guestUser?.lastName?.toLowerCase() === lastName.toLowerCase();
+    if (!lastNameMatch) throw new NotFoundException('Reservation not found');
+
+    const destination = booking.guestEmail ?? booking.guestPhone;
+    if (!destination) {
+      throw new BadRequestException('No contact on file for reservation');
+    }
+
+    await this.otp.consume({
+      destination,
+      code,
+      purpose: OtpPurpose.RESERVATION_ENQUIRY,
+    });
+
+    // Generate the long-lived check-in code on first successful verify so
+    // re-verifying (e.g. resumed wizard) yields the same digits — the
+    // receptionist may have already noted the previous value.
+    let checkInCode = booking.checkInCode;
+    if (!checkInCode) {
+      checkInCode = await this.allocateUniqueCheckInCode();
+      await this.prisma.booking.update({
+        where: { id: booking.id },
+        data: { checkInCode },
+      });
+    }
+
+    return {
+      bookingId: booking.id,
+      checkInCode,
+      booking: {
+        id: booking.id,
+        reference: booking.reference,
+        propertyName: booking.property.name,
+        checkIn: booking.checkIn,
+        checkOut: booking.checkOut,
+        guestFirstName: booking.guestFirstName,
+        guestLastName: booking.guestLastName,
+        guestEmail: booking.guestEmail,
+        adults: booking.adults,
+        children: booking.children,
+      },
+    };
+  }
+
+  /**
+   * Email the booking's `checkInCode` to the guest. The "Email Code"
+   * popup in the wizard's verification page calls this. Falls back to the
+   * booking's stored guestEmail when the caller doesn't supply one.
+   */
+  async checkInEmailCode(bookingId: string, overrideEmail?: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    if (!booking.checkInCode) {
+      throw new BadRequestException('Check-in code has not been issued yet');
+    }
+    const to = overrideEmail ?? booking.guestEmail;
+    if (!to) throw new BadRequestException('No email on file for this booking');
+
+    const subject = `Your MSK check-in code: ${booking.checkInCode}`;
+    const html = `
+      <div style="font-family:system-ui,sans-serif;max-width:480px;margin:auto;padding:24px">
+        <h2 style="margin:0 0 12px">Your check-in code</h2>
+        <p style="color:#555;line-height:1.5">
+          Show this code at reception to be greeted faster.
+        </p>
+        <div style="font-size:28px;letter-spacing:6px;font-weight:700;
+                    background:#FFD8B5;border-radius:12px;padding:18px 24px;
+                    text-align:center;margin:18px 0;color:#222">
+          ${booking.checkInCode}
+        </div>
+        <p style="color:#888;font-size:13px">
+          Reservation ${booking.reference}
+        </p>
+      </div>
+    `;
+    try {
+      await this.email.send(to, subject, html);
+    } catch (err) {
+      this.logger.warn(
+        `Check-in code email send failed: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+    return { sent: true, contactHint: maskContact(to) };
+  }
+
+  /**
+   * Persist the wizard's full submission. Single atomic transaction:
+   * Booking fields + the (replace-all) BookingGuest rows. Sets status to
+   * CHECKED_IN when the guest opts to verify at reception NOW; verify-later
+   * keeps the booking CONFIRMED for the receptionist to flip on arrival.
+   */
+  async checkInSubmit(bookingId: string, dto: CheckInSubmitDto) {
+    if (!dto.acceptedTerms) {
+      throw new BadRequestException('Terms must be accepted');
+    }
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    if (booking.status === BookingStatus.CANCELLED || booking.status === BookingStatus.NO_SHOW) {
+      throw new BadRequestException('Booking is not in a check-in-able state');
+    }
+
+    const now = new Date();
+    const shouldFlipCheckedIn = dto.physicalVerifyChoice === 'NOW';
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          // Optional booker-correction fields
+          guestFirstName: dto.firstName ?? booking.guestFirstName,
+          guestLastName: dto.lastName ?? booking.guestLastName,
+          guestEmail: dto.email ?? booking.guestEmail,
+          guestPhone: dto.phone ?? booking.guestPhone,
+
+          arrivalTime: dto.arrivalTime ?? booking.arrivalTime,
+          wantsRoomTypeChange: dto.wantsRoomTypeChange ?? booking.wantsRoomTypeChange,
+          requestedRoomType: dto.requestedRoomType ?? booking.requestedRoomType,
+          physicalVerifyChoice: dto.physicalVerifyChoice,
+          addressByCode: dto.addressByCode,
+          signatureUrl: dto.signatureUrl ?? booking.signatureUrl,
+          additionalInfoText: dto.additionalInfoText ?? booking.additionalInfoText,
+          acceptedTermsAt: now,
+          ...(shouldFlipCheckedIn && {
+            status: BookingStatus.CHECKED_IN,
+            checkedInAt: now,
+          }),
+        },
+      });
+
+      if (dto.guests && dto.guests.length > 0) {
+        // Replace existing additional-guest rows so re-submitting a wizard
+        // doesn't leave stale guests around. The primary booker is stored
+        // on Booking itself, so we only persist the *additional* people.
+        await tx.bookingGuest.deleteMany({ where: { bookingId } });
+        await tx.bookingGuest.createMany({
+          data: dto.guests.map((g) => ({
+            bookingId,
+            fullName: `${g.firstName} ${g.lastName}`.trim(),
+            email: g.email,
+            phone: g.phone,
+            hasKids: g.hasKids ?? null,
+            kidsCount: g.kidsCount ?? null,
+          })),
+        });
+      }
+    });
+
+    return this.detail(bookingId);
+  }
+
+  /**
+   * Generate a 6-digit code that isn't already used by another booking.
+   * Retries on the rare collision; gives up after a small handful of
+   * attempts to avoid hanging if every code is somehow taken (it won't be).
+   */
+  private async allocateUniqueCheckInCode(): Promise<string> {
+    for (let i = 0; i < 6; i++) {
+      const candidate = Math.floor(100_000 + Math.random() * 900_000).toString();
+      const clash = await this.prisma.booking.findUnique({
+        where: { checkInCode: candidate },
+        select: { id: true },
+      });
+      if (!clash) return candidate;
+    }
+    throw new Error('Could not allocate a unique check-in code');
   }
 
   update(id: string, dto: Prisma.BookingUncheckedUpdateInput) {
@@ -643,6 +875,15 @@ function enumerateDays(from: Date, to: Date): Date[] {
 
 function sameDay(a: Date, b: Date): boolean {
   return a.toISOString().slice(0, 10) === b.toISOString().slice(0, 10);
+}
+
+/** Mask an email or phone for display in API responses. */
+function maskContact(value: string): string {
+  if (value.includes('@')) {
+    const [local, domain] = value.split('@');
+    return `${local.slice(0, 2)}***@${domain}`;
+  }
+  return `${'*'.repeat(Math.max(0, value.length - 4))}${value.slice(-4)}`;
 }
 
 function escapeHtml(s: string): string {

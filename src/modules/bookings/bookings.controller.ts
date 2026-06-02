@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -6,8 +7,13 @@ import {
   Patch,
   Post,
   Query,
+  Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { JwtService } from '@nestjs/jwt';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { BookingSource, UserRole } from '@prisma/client';
 
@@ -17,6 +23,7 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { StorageService } from '../photos/storage.service';
 
 import {
   AssignRoomDto,
@@ -25,12 +32,87 @@ import {
   CreateBookingDto,
   ListBookingsQueryDto,
 } from './dto';
+import {
+  CheckInEmailCodeDto,
+  CheckInStartDto,
+  CheckInSubmitDto,
+  CheckInVerifyDto,
+} from './check-in.dto';
 import { BookingsService } from './bookings.service';
+import {
+  CheckInTokenGuard,
+  buildCheckInToken,
+} from './check-in-token';
 
 @ApiTags('bookings')
 @Controller('bookings')
 export class BookingsController {
-  constructor(private readonly service: BookingsService) {}
+  constructor(
+    private readonly service: BookingsService,
+    private readonly storage: StorageService,
+    private readonly jwt: JwtService,
+  ) {}
+
+  // ── Mobile guest-wizard check-in ───────────────────────────────────────
+  //
+  // Five public endpoints powering the in-app check-in flow. /start and
+  // /verify are unauthenticated (the guest hasn't logged in); the remaining
+  // three require a short-lived "check-in" scoped JWT issued by /verify.
+  // See check-in-token.ts.
+
+  @Public()
+  @Post('public/check-in/start')
+  checkInStart(@Body() dto: CheckInStartDto) {
+    return this.service.checkInStart(dto.reference, dto.lastName);
+  }
+
+  @Public()
+  @Post('public/check-in/verify')
+  async checkInVerify(@Body() dto: CheckInVerifyDto) {
+    const result = await this.service.checkInVerify(
+      dto.reference,
+      dto.lastName,
+      dto.code,
+    );
+    const checkInToken = await buildCheckInToken(this.jwt, result.bookingId);
+    return { ...result, checkInToken };
+  }
+
+  @Public()
+  @UseGuards(CheckInTokenGuard)
+  @Post('public/check-in/email-code')
+  checkInEmailCode(
+    @Req() req: { bookingId: string },
+    @Body() dto: CheckInEmailCodeDto,
+  ) {
+    return this.service.checkInEmailCode(req.bookingId, dto.email);
+  }
+
+  @Public()
+  @UseGuards(CheckInTokenGuard)
+  @Post('public/check-in/upload-signature')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }))
+  async checkInUploadSignature(
+    @Req() req: { bookingId: string },
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded. Field name must be "file".');
+    }
+    const folder = `check-in/${req.bookingId}/signature`;
+    const { url } = await this.storage.upload(file.buffer, file.mimetype, folder);
+    return { url };
+  }
+
+  @Public()
+  @UseGuards(CheckInTokenGuard)
+  @Post('public/check-in/submit')
+  checkInSubmit(
+    @Req() req: { bookingId: string },
+    @Body() dto: CheckInSubmitDto,
+  ) {
+    return this.service.checkInSubmit(req.bookingId, dto);
+  }
 
   // ── Public guest checkout ──────────────────────────────────────────────
 
