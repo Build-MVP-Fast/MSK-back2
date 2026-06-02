@@ -32,7 +32,7 @@ export class LoginEmailDto {
   email!: string;
 
   @IsString()
-  @MinLength(1)
+  @MinLength(8, { message: 'password must be at least 8 characters' })
   password!: string;
 }
 

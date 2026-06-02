@@ -1,10 +1,11 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, UnauthorizedException, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { User } from '@prisma/client';
+import { User, UserRole } from '@prisma/client';
 import * as crypto from 'crypto';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { PermissionsService } from '../permissions/permissions.service';
 
 @Injectable()
 export class TokenService {
@@ -12,6 +13,8 @@ export class TokenService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    @Inject(forwardRef(() => PermissionsService))
+    private readonly permissions: PermissionsService,
   ) {}
 
   async issue(user: User) {
@@ -34,6 +37,25 @@ export class TokenService {
       data: { userId: user.id, tokenHash: refreshTokenHash, expiresAt },
     });
 
+    // Embed effective permissions so the admin SPA can prime its cache
+    // without a separate /auth/me/permissions round-trip after login.
+    // SUPER_USER short-circuits to '*'. Non-staff roles ship nothing.
+    let permissionCodes: string[] = [];
+    if (user.primaryRole === UserRole.SUPER_USER || user.role === UserRole.SUPER_USER) {
+      permissionCodes = ['*'];
+    } else if (
+      user.primaryRole === UserRole.ADMIN ||
+      user.primaryRole === UserRole.RECEPTIONIST ||
+      user.role === UserRole.ADMIN ||
+      user.role === UserRole.RECEPTIONIST
+    ) {
+      const set = await this.permissions.effectivePermissions(
+        user.id,
+        (user.primaryRole ?? user.role) as UserRole,
+      );
+      permissionCodes = [...set].sort();
+    }
+
     return {
       accessToken,
       refreshToken: refreshTokenRaw,
@@ -48,6 +70,7 @@ export class TokenService {
         primaryRole: user.primaryRole,
         companyId: user.companyId,
       },
+      permissions: permissionCodes,
     };
   }
 

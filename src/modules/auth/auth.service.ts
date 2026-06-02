@@ -251,9 +251,6 @@ export class AuthService {
     if (!currentSecret || !newSecret) {
       throw new BadRequestException('Current and new secret are required.');
     }
-    if (newSecret.length < 4) {
-      throw new BadRequestException('New secret is too short.');
-    }
     if (currentSecret === newSecret) {
       throw new BadRequestException(
         'New secret must be different from the current one.',
@@ -269,6 +266,24 @@ export class AuthService {
       credentials.find((c) => c.provider === AuthProvider.PIN);
     if (!credential) {
       throw new BadRequestException('Account has no password set.');
+    }
+
+    // Apply the same length rule the credential's original DTO enforced
+    // (8+ for PASSWORD, 4–6 for PIN). Without this the endpoint silently
+    // accepts a too-short new secret and the user is then locked out by
+    // the stricter login validator on the next sign-in.
+    if (credential.provider === AuthProvider.PASSWORD) {
+      if (newSecret.length < 8) {
+        throw new BadRequestException(
+          'New password must be at least 8 characters.',
+        );
+      }
+    } else {
+      if (newSecret.length < 4 || newSecret.length > 6) {
+        throw new BadRequestException(
+          'New PIN must be 4 to 6 digits.',
+        );
+      }
     }
 
     const valid = await argon2.verify(credential.secretHash, currentSecret);
