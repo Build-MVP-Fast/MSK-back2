@@ -239,13 +239,24 @@ export class AuthService {
   }
 
   /**
-   * Change a logged-in user's credential (password or PIN). The provider
-   * is auto-detected from the user's existing credential row — staff
-   * accounts use PIN, website signups use PASSWORD, and either flow uses
-   * the same endpoint.
+   * Change a logged-in user's credential.
+   *
+   * The provider of the NEW secret is decided by the *new value's shape*,
+   * not by what the account had before — so a staff member seeded with a
+   * 4-digit PIN can freely upgrade to a long alphanumeric password, and
+   * a web guest with a password can switch to a PIN if they prefer.
+   *
+   *   - 4–6 ASCII digits → stored as a PIN credential
+   *   - anything else    → stored as a PASSWORD credential (must be 8+
+   *                        characters; spaces and any printable symbols
+   *                        allowed, no complexity rules beyond length so
+   *                        the user can pick a passphrase)
+   *
+   * Old credentials are wiped in the same transaction so the previous
+   * value can never authenticate again.
    *
    * Returns generic "Invalid credentials" on a wrong current secret so we
-   * don't leak which provider the account uses.
+   * don't leak which provider the account previously used.
    */
   async changeSecret(userId: string, currentSecret: string, newSecret: string) {
     if (!currentSecret || !newSecret) {
@@ -260,40 +271,62 @@ export class AuthService {
     const credentials = await this.prisma.userCredential.findMany({
       where: { userId },
     });
-    // Prefer PASSWORD over PIN if both exist (shouldn't, but be tolerant).
-    const credential =
-      credentials.find((c) => c.provider === AuthProvider.PASSWORD) ??
-      credentials.find((c) => c.provider === AuthProvider.PIN);
-    if (!credential) {
+    if (credentials.length === 0) {
       throw new BadRequestException('Account has no password set.');
     }
 
-    // Apply the same length rule the credential's original DTO enforced
-    // (8+ for PASSWORD, 4–6 for PIN). Without this the endpoint silently
-    // accepts a too-short new secret and the user is then locked out by
-    // the stricter login validator on the next sign-in.
-    if (credential.provider === AuthProvider.PASSWORD) {
-      if (newSecret.length < 8) {
-        throw new BadRequestException(
-          'New password must be at least 8 characters.',
-        );
-      }
-    } else {
-      if (newSecret.length < 4 || newSecret.length > 6) {
-        throw new BadRequestException(
-          'New PIN must be 4 to 6 digits.',
-        );
+    // Verify the current secret against ANY of the user's stored
+    // credentials — a staff member with a PIN should be able to type
+    // their PIN as the current secret even though the new value will
+    // be a long password.
+    let currentCredentialId: string | null = null;
+    for (const c of credentials) {
+      if (await argon2.verify(c.secretHash, currentSecret)) {
+        currentCredentialId = c.id;
+        break;
       }
     }
+    if (!currentCredentialId) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
-    const valid = await argon2.verify(credential.secretHash, currentSecret);
-    if (!valid) throw new UnauthorizedException('Invalid credentials');
+    // Decide the new credential's type from its shape, not from the
+    // previous credential. This is the bit that lets a SUPER_USER seeded
+    // with a 4-digit PIN finally switch to a real password.
+    const looksLikePin = /^\d{4,6}$/.test(newSecret);
+    const newProvider = looksLikePin ? AuthProvider.PIN : AuthProvider.PASSWORD;
+    if (newProvider === AuthProvider.PASSWORD && newSecret.length < 8) {
+      throw new BadRequestException(
+        'New password must be at least 8 characters.',
+      );
+    }
+    if (newProvider === AuthProvider.PASSWORD && newSecret.length > 200) {
+      throw new BadRequestException(
+        'New password is too long (max 200 characters).',
+      );
+    }
 
-    await this.prisma.userCredential.update({
-      where: { id: credential.id },
-      data: { secretHash: await argon2.hash(newSecret) },
-    });
-    return { changed: true, provider: credential.provider };
+    const newHash = await argon2.hash(newSecret);
+
+    // Replace the credential row atomically. We wipe every old
+    // credential (PIN + PASSWORD if both somehow existed) so the user
+    // ends up with exactly one row matching the new provider.
+    await this.prisma.$transaction([
+      this.prisma.userCredential.deleteMany({ where: { userId } }),
+      this.prisma.userCredential.create({
+        data: {
+          userId,
+          provider: newProvider,
+          secretHash: newHash,
+        },
+      }),
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { authProvider: newProvider },
+      }),
+    ]);
+
+    return { changed: true, provider: newProvider };
   }
 
   // -------------------------------------------------------- reservation enquiry

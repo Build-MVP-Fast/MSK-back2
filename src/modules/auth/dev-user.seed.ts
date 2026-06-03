@@ -79,8 +79,11 @@ export class DevUserSeed implements OnApplicationBootstrap {
       return;
     }
 
-    // Existing — heal role + refresh PIN credential so rotating the env
-    // var is the only step to rotate the secret on prod.
+    // Existing — heal role + active flags every boot. Credentials are
+    // only re-seeded if the user has none of their own; if they've
+    // changed their own password via /auth/change-secret we leave it
+    // alone so the env-driven PIN doesn't reappear and re-grant the
+    // old PIN-shape access alongside the new password.
     await this.prisma.user.update({
       where: { id: existing.id },
       data: {
@@ -92,27 +95,17 @@ export class DevUserSeed implements OnApplicationBootstrap {
       },
     });
 
-    const pinCred = existing.credentials.find(
-      (c) => c.provider === AuthProvider.PIN,
-    );
-    if (pinCred) {
-      const stillMatches = await argon2.verify(pinCred.secretHash, pin);
-      if (!stillMatches) {
-        await this.prisma.userCredential.update({
-          where: { id: pinCred.id },
-          data: { secretHash },
-        });
-        this.logger.log(`Refreshed dev SUPER_USER PIN for ${email}`);
-      }
-    } else {
-      await this.prisma.userCredential.create({
-        data: {
-          userId: existing.id,
-          provider: AuthProvider.PIN,
-          secretHash,
-        },
-      });
-      this.logger.log(`Added PIN credential to existing dev user ${email}`);
+    if (existing.credentials.length > 0) {
+      return;
     }
+
+    await this.prisma.userCredential.create({
+      data: {
+        userId: existing.id,
+        provider: AuthProvider.PIN,
+        secretHash,
+      },
+    });
+    this.logger.log(`Added PIN credential to existing dev user ${email}`);
   }
 }
