@@ -90,32 +90,75 @@ export class UsersService {
   async createStaff(dto: CreateUserDto): Promise<CreateStaffResult> {
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
+      include: { credentials: true },
     });
-    if (existing) throw new ConflictException('Email already in use');
+    // Only reject when there's a *live* account on this email. A
+    // soft-deleted user (deletedAt set, isActive=false) gets resurrected
+    // with the new admin's details instead — same database row so
+    // bookings, audit logs, etc. that reference the original userId stay
+    // intact, but from the admin's point of view "delete + create" with
+    // the same email just works.
+    if (existing && !existing.deletedAt) {
+      throw new ConflictException('Email already in use');
+    }
 
     const provided = dto.password;
     const tempPassword = provided ? null : generateTempPassword();
     const password = provided ?? tempPassword!;
     const secretHash = await argon2.hash(password);
 
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        fullName: `${dto.firstName} ${dto.lastName}`.trim(),
-        role: dto.role,
-        primaryRole: dto.role,
-        authProvider: AuthProvider.PASSWORD,
-        credentials: {
-          create: {
-            provider: AuthProvider.PASSWORD,
-            secretHash,
+    let user: { id: string; email: string | null; fullName: string | null; role: UserRole };
+
+    if (existing) {
+      // Resurrect: overwrite the identity fields the admin re-entered,
+      // clear the soft-delete tombstone, and replace the PASSWORD
+      // credential. Old PIN credentials (if any) are dropped at the same
+      // time so the previous staff member can't still log in with a
+      // stale PIN.
+      const updated = await this.prisma.$transaction(async (tx) => {
+        await tx.userCredential.deleteMany({ where: { userId: existing.id } });
+        return tx.user.update({
+          where: { id: existing.id },
+          data: {
+            firstName: dto.firstName,
+            lastName: dto.lastName,
+            fullName: `${dto.firstName} ${dto.lastName}`.trim(),
+            role: dto.role,
+            primaryRole: dto.role,
+            authProvider: AuthProvider.PASSWORD,
+            isActive: true,
+            deletedAt: null,
+            credentials: {
+              create: {
+                provider: AuthProvider.PASSWORD,
+                secretHash,
+              },
+            },
+          },
+          select: { id: true, email: true, fullName: true, role: true },
+        });
+      });
+      user = updated;
+    } else {
+      user = await this.prisma.user.create({
+        data: {
+          email: dto.email,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          fullName: `${dto.firstName} ${dto.lastName}`.trim(),
+          role: dto.role,
+          primaryRole: dto.role,
+          authProvider: AuthProvider.PASSWORD,
+          credentials: {
+            create: {
+              provider: AuthProvider.PASSWORD,
+              secretHash,
+            },
           },
         },
-      },
-      select: { id: true, email: true, fullName: true, role: true },
-    });
+        select: { id: true, email: true, fullName: true, role: true },
+      });
+    }
 
     let inviteEmailSent = false;
     if (dto.sendInviteEmail && user.email) {
