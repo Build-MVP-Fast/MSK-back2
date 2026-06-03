@@ -31,8 +31,13 @@ export class LoginEmailDto {
   @IsEmail()
   email!: string;
 
+  // Login validation intentionally only checks shape, not length. Any
+  // mismatch (too short, too long, wrong format) is handled by the auth
+  // service and surfaces as a generic 401 "Invalid credentials". Leaking
+  // "password must be at least 8 characters" or similar on login both
+  // confuses users typing a familiar password and gives an attacker free
+  // information about the password policy.
   @IsString()
-  @MinLength(8, { message: 'password must be at least 8 characters' })
   password!: string;
 }
 
@@ -93,8 +98,13 @@ export class LoginPinDto {
   @IsEmail()
   email?: string;
 
+  // Same reasoning as LoginEmailDto.password — login DTO only validates
+  // shape. A frontend bug (cached old chunk, browser autofill, retry
+  // logic) that ever sends a >6-char value to /auth/login/pin should
+  // surface as "Invalid credentials", not "pin must be shorter than or
+  // equal to 6 characters" which the actual user this happened to today
+  // (June 2026) was rightly confused by.
   @IsString()
-  @Length(4, 6)
   pin!: string;
 }
 
