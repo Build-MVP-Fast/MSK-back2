@@ -826,6 +826,13 @@ export class BookingsService {
     propertyName: string,
   ) {
     if (!booking.guestEmail) return;
+    // Booking confirmations are sent from a dedicated reservations
+    // mailbox so guests' replies route to the right team.
+    // BOOKING_EMAIL_FROM overrides if set; otherwise the documented
+    // default is used. The address has to be one the SMTP credentials
+    // are allowed to send as — set it on the SMTP provider too.
+    const from =
+      process.env.BOOKING_EMAIL_FROM ?? 'MSK Reservations <reservation@mskresidence.com>';
     const total = Number(booking.totalAmount).toFixed(2);
     const subject = `Your booking ${booking.reference} is confirmed`;
     const html = `
@@ -845,7 +852,7 @@ export class BookingsService {
         </p>
       </div>
     `;
-    await this.email.send(booking.guestEmail, subject, html);
+    await this.email.send(booking.guestEmail, subject, html, from);
   }
 }
 
