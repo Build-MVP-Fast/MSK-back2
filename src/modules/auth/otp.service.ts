@@ -84,8 +84,14 @@ export class OtpService {
     destination: string,
     code: string,
   ): { subject: string; html: string } {
+    // Public URL of the residence website. Used to build the password-
+    // reset link in OTP emails. Configurable via WEB_PUBLIC_URL so dev
+    // points at http://localhost:3000 and prod points at the real
+    // domain. The fallback is the production residence domain so a
+    // misconfigured deployment still sends a working link instead of a
+    // stale Vercel preview.
     const webBase =
-      this.config.get<string>('WEB_PUBLIC_URL') ?? 'https://msk-web-kpjg.vercel.app';
+      this.config.get<string>('WEB_PUBLIC_URL') ?? 'https://www.mskresidence.com';
 
     if (purpose === OtpPurpose.RESET_PASSWORD) {
       const token = Buffer.from(`${destination}|${code}`).toString('base64url');

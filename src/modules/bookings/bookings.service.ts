@@ -4,14 +4,17 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import {
+  AuthProvider,
   AvailabilityBlockReason,
   BookingSource,
   BookingStatus,
   OtpPurpose,
   Prisma,
 } from '@prisma/client';
+import * as argon2 from 'argon2';
 import { nanoid } from 'nanoid';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -277,6 +280,125 @@ export class BookingsService {
    * confirmation page (only by reference) and by a "find your reservation"
    * flow (reference + email match).
    */
+  /**
+   * Lookup the wizard-friendly booking summary by reservation reference,
+   * with no OTP required. Used by the mobile guest-wizard to pre-fill
+   * Page 1's Property + Room Type fields as soon as the guest finishes
+   * typing the reservation number, before the OTP step.
+   *
+   * Returns the same shape as the `booking` field of the /verify
+   * response so the mobile side can use a single `CheckInBookingSummary`
+   * type. No token is issued — the existing OTP flow still gates every
+   * authenticated step (signature upload, submit).
+   */
+  async checkInLookup(reference: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { reference },
+      include: {
+        property: {
+          select: {
+            id: true,
+            name: true,
+            roomTypes: {
+              select: {
+                id: true,
+                name: true,
+                basePrice: true,
+                currency: true,
+                description: true,
+                bedConfig: true,
+                maxOccupancy: true,
+                ordering: true,
+              },
+              orderBy: { ordering: 'asc' },
+            },
+          },
+        },
+        roomType: { select: { id: true, name: true } },
+        // Most recent payment attempt — its `method` drives the
+        // "preferred payment method" line on Page 1. We don't pull all
+        // payments, just the latest, since the wizard only displays one.
+        payments: {
+          select: { method: true, status: true, paidAt: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+    if (!booking) throw new NotFoundException('Reservation not found');
+    return this.toCheckInBookingSummary(booking);
+  }
+
+  /**
+   * Map a fully-included Booking record to the wire shape used by both
+   * /check-in/lookup (no OTP) and the booking field of /check-in/verify
+   * (post-OTP). Keeping the projection in one place means the two
+   * endpoints can never drift out of sync.
+   */
+  private toCheckInBookingSummary(booking: {
+    id: string;
+    reference: string;
+    checkIn: Date;
+    checkOut: Date;
+    guestFirstName: string | null;
+    guestLastName: string | null;
+    guestEmail: string | null;
+    adults: number;
+    children: number;
+    totalAmount: Prisma.Decimal;
+    paidAmount: Prisma.Decimal;
+    currency: string;
+    property: {
+      id: string;
+      name: string;
+      roomTypes: Array<{
+        id: string;
+        name: string;
+        basePrice: Prisma.Decimal;
+        currency: string;
+        description: string | null;
+        bedConfig: string | null;
+        maxOccupancy: number;
+      }>;
+    };
+    roomType: { id: string; name: string } | null;
+    payments: Array<{ method: string }>;
+  }) {
+    const totalAmount = Number(booking.totalAmount);
+    const paidAmount = Number(booking.paidAmount);
+    return {
+      id: booking.id,
+      reference: booking.reference,
+      propertyId: booking.property.id,
+      propertyName: booking.property.name,
+      roomType: booking.roomType
+        ? { id: booking.roomType.id, name: booking.roomType.name }
+        : null,
+      availableRoomTypes: booking.property.roomTypes.map((rt) => ({
+        id: rt.id,
+        name: rt.name,
+        basePrice: Number(rt.basePrice),
+        currency: rt.currency,
+        description: rt.description,
+        bedConfig: rt.bedConfig,
+        maxOccupancy: rt.maxOccupancy,
+      })),
+      checkIn: booking.checkIn,
+      checkOut: booking.checkOut,
+      guestFirstName: booking.guestFirstName,
+      guestLastName: booking.guestLastName,
+      guestEmail: booking.guestEmail,
+      adults: booking.adults,
+      children: booking.children,
+      // ── Payment summary, drives the orange Payment box on Page 1.
+      totalAmount,
+      paidAmount,
+      outstandingAmount: Math.max(0, totalAmount - paidAmount),
+      currency: booking.currency,
+      preferredPaymentMethod: booking.payments[0]?.method ?? null,
+    };
+  }
+
   async findByReference(reference: string, email?: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { reference },
@@ -397,7 +519,37 @@ export class BookingsService {
       where: { reference },
       include: {
         guestUser: true,
-        property: { select: { id: true, name: true } },
+        property: {
+          select: {
+            id: true,
+            name: true,
+            // All published room types at the property, so the wizard
+            // can render real options when the guest asks to switch
+            // instead of falling back to a hard-coded mock list.
+            roomTypes: {
+              select: {
+                id: true,
+                name: true,
+                basePrice: true,
+                currency: true,
+                description: true,
+                bedConfig: true,
+                maxOccupancy: true,
+                ordering: true,
+              },
+              orderBy: { ordering: 'asc' },
+            },
+          },
+        },
+        // The room type already on the booking — used to render the
+        // "fixed" read-only field when the guest answers No to the
+        // change question.
+        roomType: { select: { id: true, name: true } },
+        payments: {
+          select: { method: true, status: true, paidAt: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
       },
     });
     if (!booking) throw new NotFoundException('Reservation not found');
@@ -433,19 +585,34 @@ export class BookingsService {
     return {
       bookingId: booking.id,
       checkInCode,
-      booking: {
-        id: booking.id,
-        reference: booking.reference,
-        propertyName: booking.property.name,
-        checkIn: booking.checkIn,
-        checkOut: booking.checkOut,
-        guestFirstName: booking.guestFirstName,
-        guestLastName: booking.guestLastName,
-        guestEmail: booking.guestEmail,
-        adults: booking.adults,
-        children: booking.children,
-      },
+      booking: this.toCheckInBookingSummary(booking),
     };
+  }
+
+  /**
+   * Save a free-form note from the guest after submit. The Success page
+   * lets them type additional context for reception ("we'll arrive late,
+   * please leave the key with the doorman") and tap "Send to
+   * accommodation"; this endpoint just patches the booking's
+   * additionalInfoText so reception sees it in the PMS. No status flip,
+   * no guest-row rewrite — it's a targeted update so re-tapping the
+   * button is safe.
+   */
+  async checkInSetNote(bookingId: string, text: string) {
+    const trimmed = text.trim().slice(0, 2000);
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { id: true, status: true },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    if (booking.status === BookingStatus.CANCELLED || booking.status === BookingStatus.NO_SHOW) {
+      throw new BadRequestException('Booking is not in a check-in-able state');
+    }
+    await this.prisma.booking.update({
+      where: { id: bookingId },
+      data: { additionalInfoText: trimmed },
+    });
+    return { saved: true };
   }
 
   /**
@@ -481,11 +648,21 @@ export class BookingsService {
         </p>
       </div>
     `;
+    // Translate SMTP-level failures into a clear 4xx the mobile modal
+    // can render verbatim. We don't want the previous silent-success
+    // bug back (where the wizard claimed it sent even though SMTP
+    // rejected), and we also don't want a raw 500 / stack trace
+    // bubbling up to a guest who typed an unverified email address.
     try {
       await this.email.send(to, subject, html);
     } catch (err) {
       this.logger.warn(
-        `Check-in code email send failed: ${err instanceof Error ? err.message : err}`,
+        `Check-in code email send failed for ${to}: ${err instanceof Error ? err.message : err}`,
+      );
+      throw new BadRequestException(
+        `Could not send the code to ${maskContact(to)}. ` +
+          `If this is a different address from the one on the booking, ` +
+          `the email provider may not allow sending to it yet — try the original booking email.`,
       );
     }
     return { sent: true, contactHint: maskContact(to) };
@@ -573,6 +750,196 @@ export class BookingsService {
       if (!clash) return candidate;
     }
     throw new Error('Could not allocate a unique check-in code');
+  }
+
+  // ── Mobile guest-wizard checkout ────────────────────────────────────
+
+  /**
+   * Sign in to the checkout flow with email + password. Defers to the
+   * existing auth service for the actual credential check so we don't
+   * duplicate password handling, then returns just the userId — the
+   * controller wraps it in a check-out scoped JWT (`mode: 'user'`).
+   */
+  async checkOutSignInWithCredentials(email: string, password: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      include: { credentials: true },
+    });
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    const credential = user.credentials.find(
+      (c) => c.provider === AuthProvider.PASSWORD,
+    );
+    if (!credential) throw new UnauthorizedException('Invalid credentials');
+    const valid = await argon2.verify(credential.secretHash, password);
+    if (!valid) throw new UnauthorizedException('Invalid credentials');
+    return { userId: user.id };
+  }
+
+  /**
+   * Sign in to the checkout flow using the 6-digit check-in code the
+   * guest received during their check-in wizard. The code identifies
+   * exactly one booking; controller issues a check-out token with
+   * `mode: 'booking'` so the token holder can only act on that one.
+   * Only bookings currently in CHECKED_IN status are eligible.
+   */
+  async checkOutSignInWithCode(code: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { checkInCode: code },
+      select: { id: true, status: true, guestUserId: true },
+    });
+    if (!booking) throw new UnauthorizedException('Invalid code');
+    if (booking.status !== BookingStatus.CHECKED_IN) {
+      throw new BadRequestException(
+        'This reservation is not currently checked in',
+      );
+    }
+    // If the booking is linked to a real user, prefer the wider
+    // "user" mode so they can see all their active stays in one
+    // session. Otherwise fall back to a booking-scoped token.
+    return booking.guestUserId
+      ? { sub: booking.guestUserId, mode: 'user' as const }
+      : { sub: booking.id, mode: 'booking' as const };
+  }
+
+  /**
+   * Send a one-time code to a guest's email for checkout sign-in.
+   * Mirrors the existing password-reset OTP delivery — uses the
+   * shared OtpService so dev environments can read the code from the
+   * server logs even before SMTP is wired.
+   */
+  async checkOutRequestOtp(email: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true, isActive: true, email: true },
+    });
+    // Don't leak whether the address exists — always claim success.
+    if (!user || !user.isActive || !user.email) {
+      return { sent: true };
+    }
+    await this.otp.send({
+      destination: user.email,
+      channel: 'email',
+      purpose: OtpPurpose.CHECKOUT_SIGN_IN,
+      userId: user.id,
+    });
+    return { sent: true };
+  }
+
+  /**
+   * Verify a checkout OTP and return the userId. Controller wraps the
+   * id in a check-out token (`mode: 'user'`).
+   */
+  async checkOutVerifyOtp(email: string, code: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true, isActive: true, email: true },
+    });
+    if (!user || !user.isActive || !user.email) {
+      throw new UnauthorizedException('Invalid or expired code');
+    }
+    await this.otp.consume({
+      destination: user.email,
+      code,
+      purpose: OtpPurpose.CHECKOUT_SIGN_IN,
+    });
+    return { userId: user.id };
+  }
+
+  /**
+   * List the active (CHECKED_IN) bookings the holder of a check-out
+   * token can act on. In `user` mode that's every CHECKED_IN booking
+   * belonging to that user; in `booking` mode it's exactly one
+   * row — the booking the code authenticated to.
+   */
+  async checkOutListActive(sub: string, mode: 'user' | 'booking') {
+    const bookings = await this.prisma.booking.findMany({
+      where:
+        mode === 'user'
+          ? { guestUserId: sub, status: BookingStatus.CHECKED_IN }
+          : { id: sub, status: BookingStatus.CHECKED_IN },
+      include: {
+        property: { select: { id: true, name: true } },
+        roomType: { select: { id: true, name: true } },
+      },
+      orderBy: { checkIn: 'asc' },
+    });
+    return bookings.map((b) => {
+      const totalAmount = Number(b.totalAmount);
+      const paidAmount = Number(b.paidAmount);
+      return {
+        id: b.id,
+        reference: b.reference,
+        propertyName: b.property.name,
+        roomTypeName: b.roomType?.name ?? null,
+        checkIn: b.checkIn,
+        checkOut: b.checkOut,
+        outstandingAmount: Math.max(0, totalAmount - paidAmount),
+        currency: b.currency,
+      };
+    });
+  }
+
+  /**
+   * Final checkout submit. Saves the photo URLs, key-handover details,
+   * feedback note, and flips the booking to CHECKED_OUT. Refuses to
+   * touch a booking that's already CHECKED_OUT, CANCELLED, or NO_SHOW;
+   * the guest needs CHECKED_IN status to check out. Enforces token-mode
+   * ↔ booking ownership: a `user`-mode token can only check out one of
+   * its own bookings; a `booking`-mode token can only check out the
+   * exact booking the code authenticated to.
+   */
+  async checkOutSubmit(
+    sub: string,
+    mode: 'user' | 'booking',
+    dto: import('./check-out.dto').CheckOutSubmitDto,
+  ) {
+    if (!dto.confirmed) {
+      throw new BadRequestException(
+        'Checkout confirmation checkbox must be ticked',
+      );
+    }
+    if (dto.keyLocation === 'ROOM' && !dto.keyLocationPhotoUrl) {
+      throw new BadRequestException(
+        'A photo of the key location is required when leaving the key in the room',
+      );
+    }
+
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: dto.bookingId },
+      select: { id: true, status: true, guestUserId: true },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    if (booking.status !== BookingStatus.CHECKED_IN) {
+      throw new BadRequestException(
+        'This booking is not currently checked in',
+      );
+    }
+    if (mode === 'booking' && booking.id !== sub) {
+      throw new UnauthorizedException('Token cannot act on this booking');
+    }
+    if (mode === 'user' && booking.guestUserId !== sub) {
+      throw new UnauthorizedException('Token cannot act on this booking');
+    }
+
+    const now = new Date();
+    await this.prisma.booking.update({
+      where: { id: dto.bookingId },
+      data: {
+        status: BookingStatus.CHECKED_OUT,
+        checkedOutAt: now,
+        checkoutRoomPhotoUrls: dto.roomPhotoUrls,
+        checkoutBathroomPhotoUrls: dto.bathroomPhotoUrls,
+        checkoutKeyLocation: dto.keyLocation,
+        checkoutStaffName: dto.keyLocation === 'STAFF' ? dto.staffName ?? null : null,
+        checkoutKeyLocationPhotoUrl:
+          dto.keyLocation === 'ROOM' ? dto.keyLocationPhotoUrl ?? null : null,
+        checkoutFeedback: dto.feedback ?? null,
+        checkoutConfirmedAt: now,
+      },
+    });
+    return { checkedOut: true };
   }
 
   update(id: string, dto: Prisma.BookingUncheckedUpdateInput) {

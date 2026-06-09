@@ -910,6 +910,64 @@ export const SITE_CONTENT_SEED: SiteContentSeed[] = [
     type: SiteContentType.RICH,
     value: 'Your account is secure. Welcome back to MSK Residence.',
   },
+
+  // ── Mobile guest-wizard ───────────────────────────────────────────
+  // Terms & Conditions surfaced on Page 4 of the guest-wizard. Stored
+  // as a single CMS key so legal copy can be updated by the admin
+  // without a mobile release. The mobile client splits on blank lines
+  // for paragraphs and renders lines matching /^\d+\./ as headings.
+  {
+    key: 'wizard.terms.heading',
+    group: 'wizard',
+    label: 'Guest Wizard — Terms heading',
+    type: SiteContentType.PLAIN,
+    value: 'Terms & Conditions',
+  },
+  {
+    key: 'wizard.terms.body',
+    group: 'wizard',
+    label: 'Guest Wizard — Terms body',
+    type: SiteContentType.RICH,
+    value: `1. General Terms
+
+By checking in at any MSK Residence property, you agree to comply with all hotel rules, policies, and applicable laws. MSK Residence reserves the right to refuse service to any guest who violates these terms.
+
+2. Check-In & Check-Out
+
+Standard check-in time is 3:00 PM and check-out is 12:00 PM (noon). Early check-in and late check-out are subject to availability and may incur additional charges. Valid government-issued photo ID is required at check-in.
+
+3. Guest Responsibilities
+
+Guests are responsible for the care and upkeep of their assigned rooms. Any damage to property caused by guests or their visitors will be charged to the guest's account. Guests must maintain a reasonable noise level and respect other guests at all times.
+
+4. Prohibited Activities
+
+The following are strictly prohibited on the premises: smoking in non-designated areas, bringing unauthorised pets, conducting illegal activities, use or possession of controlled substances, and any form of harassment toward staff or other guests.
+
+5. Privacy & Data
+
+MSK Residence collects personal data solely for the purpose of completing your reservation and improving our services. Your data will not be shared with third parties without your explicit consent, except as required by law.
+
+6. Liability
+
+MSK Residence is not liable for loss, theft, or damage to personal property left in rooms or common areas. Guests are advised to use in-room safes and report any suspicious activity to reception immediately.
+
+7. Payment
+
+All outstanding balances must be settled prior to check-out. MSK Residence accepts major credit cards, debit cards, and approved cash payments. Reservations may be cancelled or modified per the cancellation policy agreed upon at the time of booking.
+
+8. Cancellation Policy
+
+Cancellations made more than 48 hours prior to the scheduled arrival date will receive a full refund. Cancellations within 48 hours are subject to a one-night penalty charge. No-shows will be charged the full reservation amount.
+
+9. Force Majeure
+
+MSK Residence shall not be held responsible for failure to provide services due to circumstances beyond our control, including but not limited to natural disasters, government actions, power outages, or other unforeseen events.
+
+10. Amendments
+
+MSK Residence reserves the right to amend these terms and conditions at any time without prior notice. The most current version will be available at reception and on our website.`,
+  },
 ];
 
 // ── HouseRule (mirrors data/rules.ts) ─────────────────────────────────────

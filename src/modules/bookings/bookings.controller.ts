@@ -38,10 +38,19 @@ import {
   CheckInSubmitDto,
   CheckInVerifyDto,
 } from './check-in.dto';
+import {
+  CheckOutOtpRequestDto,
+  CheckOutOtpVerifyDto,
+  CheckOutSignInCodeDto,
+  CheckOutSignInCredentialsDto,
+  CheckOutSubmitDto,
+} from './check-out.dto';
 import { BookingsService } from './bookings.service';
 import {
   CheckInTokenGuard,
+  CheckOutTokenGuard,
   buildCheckInToken,
+  buildCheckOutToken,
 } from './check-in-token';
 
 @ApiTags('bookings')
@@ -60,6 +69,18 @@ export class BookingsController {
   // three require a short-lived "check-in" scoped JWT issued by /verify.
   // See check-in-token.ts.
 
+  /**
+   * Pre-fill lookup. The wizard fires this as soon as the guest finishes
+   * typing the reservation reference on Page 1, so the Property + Room
+   * Type fields can populate without waiting for the OTP round-trip.
+   * No token is issued — sensitive actions still require /verify.
+   */
+  @Public()
+  @Post('public/check-in/lookup')
+  checkInLookup(@Body() dto: { reference: string }) {
+    return this.service.checkInLookup(dto.reference);
+  }
+
   @Public()
   @Post('public/check-in/start')
   checkInStart(@Body() dto: CheckInStartDto) {
@@ -76,6 +97,20 @@ export class BookingsController {
     );
     const checkInToken = await buildCheckInToken(this.jwt, result.bookingId);
     return { ...result, checkInToken };
+  }
+
+  /**
+   * "Send to accommodation" button on the Success page — patches the
+   * booking's additionalInfoText. Re-callable, doesn't touch status.
+   */
+  @Public()
+  @UseGuards(CheckInTokenGuard)
+  @Post('public/check-in/note')
+  checkInSetNote(
+    @Req() req: { bookingId: string },
+    @Body() dto: { text: string },
+  ) {
+    return this.service.checkInSetNote(req.bookingId, dto.text ?? '');
   }
 
   @Public()
@@ -112,6 +147,84 @@ export class BookingsController {
     @Body() dto: CheckInSubmitDto,
   ) {
     return this.service.checkInSubmit(req.bookingId, dto);
+  }
+
+  // ── Mobile guest-wizard checkout ──────────────────────────────────────
+  //
+  // Three sign-in modes mirroring the checkout screen UI: email +
+  // password, the 6-digit check-in code, or an emailed OTP. Each
+  // returns a check-out scoped JWT the rest of the flow runs against.
+
+  @Public()
+  @Post('public/check-out/sign-in/credentials')
+  async checkOutSignInCredentials(@Body() dto: CheckOutSignInCredentialsDto) {
+    const result = await this.service.checkOutSignInWithCredentials(
+      dto.email,
+      dto.password,
+    );
+    const checkOutToken = await buildCheckOutToken(this.jwt, result.userId, 'user');
+    return { checkOutToken, mode: 'user' as const };
+  }
+
+  @Public()
+  @Post('public/check-out/sign-in/code')
+  async checkOutSignInCode(@Body() dto: CheckOutSignInCodeDto) {
+    const result = await this.service.checkOutSignInWithCode(dto.code);
+    const checkOutToken = await buildCheckOutToken(this.jwt, result.sub, result.mode);
+    return { checkOutToken, mode: result.mode };
+  }
+
+  @Public()
+  @Post('public/check-out/sign-in/otp/request')
+  checkOutRequestOtp(@Body() dto: CheckOutOtpRequestDto) {
+    return this.service.checkOutRequestOtp(dto.email);
+  }
+
+  @Public()
+  @Post('public/check-out/sign-in/otp/verify')
+  async checkOutVerifyOtp(@Body() dto: CheckOutOtpVerifyDto) {
+    const result = await this.service.checkOutVerifyOtp(dto.email, dto.code);
+    const checkOutToken = await buildCheckOutToken(this.jwt, result.userId, 'user');
+    return { checkOutToken, mode: 'user' as const };
+  }
+
+  /** RESERVATION page — list bookings the holder can check out of. */
+  @Public()
+  @UseGuards(CheckOutTokenGuard)
+  @Post('public/check-out/list-active')
+  checkOutListActive(
+    @Req() req: { checkOutSub: string; checkOutMode: 'user' | 'booking' },
+  ) {
+    return this.service.checkOutListActive(req.checkOutSub, req.checkOutMode);
+  }
+
+  /**
+   * DETAILS page — uploads one image at a time (room / bathroom /
+   * key-location). Returns its S3 URL which the mobile client collects
+   * into arrays and POSTs back with /check-out/submit.
+   */
+  @Public()
+  @UseGuards(CheckOutTokenGuard)
+  @Post('public/check-out/upload-photo')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 } }))
+  async checkOutUploadPhoto(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded.');
+    const { url } = await this.storage.upload(
+      file.buffer,
+      file.mimetype || 'image/jpeg',
+      'check-out',
+    );
+    return { url };
+  }
+
+  @Public()
+  @UseGuards(CheckOutTokenGuard)
+  @Post('public/check-out/submit')
+  checkOutSubmit(
+    @Req() req: { checkOutSub: string; checkOutMode: 'user' | 'booking' },
+    @Body() dto: CheckOutSubmitDto,
+  ) {
+    return this.service.checkOutSubmit(req.checkOutSub, req.checkOutMode, dto);
   }
 
   // ── Public guest checkout ──────────────────────────────────────────────

@@ -56,6 +56,7 @@ enum OtpPurpose {
   VERIFY_EMAIL
   VERIFY_PHONE
   RESERVATION_ENQUIRY
+  CHECKOUT_SIGN_IN
 }
 
 enum CompanyStatus {
@@ -737,6 +738,7 @@ model RoomType {
   amenities RoomAmenity[]
   ratePlans RatePlan[]
   availability AvailabilityCalendarEntry[]
+  bookings  Booking[] @relation("BookingRoomType")
 
   @@unique([propertyId, slug])
   @@index([propertyId])
@@ -897,6 +899,7 @@ model Booking {
   propertyId      String
   property        Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   roomTypeId      String?
+  roomType        RoomType?     @relation("BookingRoomType", fields: [roomTypeId], references: [id])
   roomId          String?
   room            Room?         @relation(fields: [roomId], references: [id])
   guestUserId     String?
@@ -935,6 +938,19 @@ model Booking {
   signatureUrl        String?
   additionalInfoText  String?
   acceptedTermsAt     DateTime?
+
+  // ── Mobile guest-wizard checkout fields ────────────────────────────
+  // Populated by /bookings/public/check-out/submit. Photos are S3 URLs
+  // returned by the dedicated upload-photo endpoint. checkoutKeyLocation
+  // is "STAFF" or "ROOM" matching the SelectableButton choices on the
+  // checkout details screen.
+  checkoutRoomPhotoUrls       String[]  @default([])
+  checkoutBathroomPhotoUrls   String[]  @default([])
+  checkoutKeyLocation         String?
+  checkoutKeyLocationPhotoUrl String?
+  checkoutStaffName           String?
+  checkoutFeedback            String?
+  checkoutConfirmedAt         DateTime?
 
   createdById     String?
   createdBy       User?         @relation("BookingCreatedBy", fields: [createdById], references: [id])
