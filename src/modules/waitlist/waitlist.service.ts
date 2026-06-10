@@ -1,7 +1,9 @@
-import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Prisma, WaitlistEntry } from '@prisma/client';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { EmailService } from '../notifications/email.service';
 
 export interface CreateWaitlistInput {
   email: string;
@@ -14,9 +16,17 @@ export interface CreateWaitlistInput {
   source?: string | null;
 }
 
+const DEFAULT_NOTIFICATIONS_EMAIL = 'info@mskguestbook.com';
+
 @Injectable()
 export class WaitlistService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(WaitlistService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly email: EmailService,
+    private readonly config: ConfigService,
+  ) {}
 
   /**
    * Public signup. Treats re-submits as idempotent — if the email already
@@ -54,7 +64,7 @@ export class WaitlistService {
       source: input.source?.trim() || null,
     };
 
-    return this.prisma.waitlistEntry.upsert({
+    const entry = await this.prisma.waitlistEntry.upsert({
       where: { email },
       create: data,
       update: {
@@ -70,6 +80,52 @@ export class WaitlistService {
         phone: data.phone ?? undefined,
       },
     });
+
+    // Fire-and-forget the operator notification. Errors must not bubble
+    // up to the caller — the marketing form expects a 200 even if the
+    // notification mailer is misconfigured.
+    void this.notifyOps(entry).catch((err) => {
+      this.logger.warn(
+        `Waitlist notification failed for ${email}: ${err instanceof Error ? err.message : err}`,
+      );
+    });
+
+    return entry;
+  }
+
+  /**
+   * Email an internal recipient about a new waitlist signup. Recipient
+   * comes from NOTIFICATIONS_EMAIL (defaults to info@mskguestbook.com).
+   * EmailService itself no-ops with a loud log when SMTP_* is not set,
+   * so this is safe to call regardless of deployment state.
+   */
+  private async notifyOps(entry: WaitlistEntry) {
+    const to = this.config.get<string>('NOTIFICATIONS_EMAIL') ?? DEFAULT_NOTIFICATIONS_EMAIL;
+    const fields: Array<[string, string | number | null | undefined]> = [
+      ['Email', entry.email],
+      ['First name', entry.firstName],
+      ['Last name', entry.lastName],
+      ['Role', entry.role],
+      ['Property count', entry.propertyCount],
+      ['Unit count', entry.unitCount],
+      ['Phone', entry.phone],
+      ['Source', entry.source],
+      ['Entry ID', entry.id],
+      ['Submitted at', entry.createdAt.toISOString()],
+    ];
+    const rows = fields
+      .map(
+        ([label, value]) =>
+          `<tr><td style="padding:6px 12px 6px 0;color:#666;font-size:13px;vertical-align:top">${escapeHtml(label)}</td><td style="padding:6px 0;color:#222;font-size:13px;vertical-align:top">${escapeHtml(value ?? '—')}</td></tr>`,
+      )
+      .join('');
+    const html = `
+      <div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px">
+        <h2 style="font-size:18px;font-weight:600;margin:0 0 16px;color:#222">New waitlist signup</h2>
+        <table style="border-collapse:collapse;width:100%">${rows}</table>
+      </div>`;
+    const subject = `[MSK waitlist] ${entry.email}`;
+    await this.email.send(to, subject, html);
   }
 
   list(q?: string) {
@@ -101,4 +157,14 @@ export class WaitlistService {
   remove(id: string) {
     return this.prisma.waitlistEntry.delete({ where: { id } });
   }
+}
+
+function escapeHtml(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
