@@ -260,6 +260,123 @@ export class BookingsService {
     });
   }
 
+  /**
+   * The "stay" the guest sees on Home / Profile / Handbook headers /
+   * Profile Dashboard. Picks the user's current most-relevant booking:
+   *
+   *   - If they have a CHECKED_IN booking → that one
+   *   - Else the nearest upcoming CONFIRMED/PENDING booking
+   *   - Else the most recent CHECKED_OUT booking (so a guest who left
+   *     yesterday can still pull invoices / write a review)
+   *   - Returns `null` if the user has no bookings at all
+   *
+   * Match by guestUserId first, then fall back to guestEmail so bookings
+   * created before the guest signed up still get attached to their
+   * account once they create one with the same email.
+   */
+  async currentStay(userId: string, email?: string | null) {
+    const orClauses: Prisma.BookingWhereInput[] = [{ guestUserId: userId }];
+    if (email) orClauses.push({ guestEmail: email });
+    const where: Prisma.BookingWhereInput = {
+      OR: orClauses,
+      status: { notIn: [BookingStatus.CANCELLED, BookingStatus.NO_SHOW] },
+    };
+    const include = {
+      property: { select: { id: true, name: true, slug: true } },
+      roomType: { select: { id: true, name: true } },
+      room: { select: { id: true, number: true, floor: true } },
+    } as const;
+
+    const checkedIn = await this.prisma.booking.findFirst({
+      where: { ...where, status: BookingStatus.CHECKED_IN },
+      include,
+      orderBy: { checkedInAt: 'desc' },
+    });
+    if (checkedIn) return this.toCurrentStaySummary(checkedIn);
+
+    const upcoming = await this.prisma.booking.findFirst({
+      where: {
+        ...where,
+        status: { in: [BookingStatus.CONFIRMED, BookingStatus.PENDING] },
+      },
+      include,
+      orderBy: { checkIn: 'asc' },
+    });
+    if (upcoming) return this.toCurrentStaySummary(upcoming);
+
+    const past = await this.prisma.booking.findFirst({
+      where: { ...where, status: BookingStatus.CHECKED_OUT },
+      include,
+      orderBy: { checkedOutAt: 'desc' },
+    });
+    if (past) return this.toCurrentStaySummary(past);
+
+    return null;
+  }
+
+  /**
+   * Additional guests attached to the user's current stay. Returns
+   * the `BookingGuest[]` rows of the booking surfaced by `currentStay`
+   * so the Additional Guests profile screen renders the same set the
+   * guest entered during the check-in wizard.
+   */
+  async currentStayGuests(userId: string, email?: string | null) {
+    const stay = await this.currentStay(userId, email);
+    if (!stay) return [];
+    return this.prisma.bookingGuest.findMany({
+      where: { bookingId: stay.id },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        isPrimary: true,
+        hasKids: true,
+        kidsCount: true,
+      },
+    });
+  }
+
+  private toCurrentStaySummary(b: {
+    id: string;
+    reference: string;
+    status: BookingStatus;
+    checkIn: Date;
+    checkOut: Date;
+    checkedInAt: Date | null;
+    checkedOutAt: Date | null;
+    checkInCode: string | null;
+    adults: number;
+    children: number;
+    totalAmount: Prisma.Decimal;
+    paidAmount: Prisma.Decimal;
+    currency: string;
+    property: { id: string; name: string; slug: string | null };
+    roomType: { id: string; name: string } | null;
+    room: { id: string; number: string; floor: string | null } | null;
+  }) {
+    return {
+      id: b.id,
+      reference: b.reference,
+      status: b.status,
+      checkIn: b.checkIn,
+      checkOut: b.checkOut,
+      checkedInAt: b.checkedInAt,
+      checkedOutAt: b.checkedOutAt,
+      checkInCode: b.checkInCode,
+      adults: b.adults,
+      children: b.children,
+      totalAmount: Number(b.totalAmount),
+      paidAmount: Number(b.paidAmount),
+      outstandingAmount: Math.max(0, Number(b.totalAmount) - Number(b.paidAmount)),
+      currency: b.currency,
+      property: b.property,
+      roomType: b.roomType,
+      room: b.room,
+    };
+  }
+
   async detail(id: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },

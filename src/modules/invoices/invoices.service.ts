@@ -69,6 +69,43 @@ export class InvoicesService {
     });
   }
 
+  /**
+   * Guest-initiated request from the mobile InvoiceRequest screen. The
+   * guest picks one of three scopes — "under my name", "under a
+   * company", "under someone else" — and submits the recipient
+   * details. We create a DRAFT invoice attached to their current
+   * booking with the booking's outstanding total as a single line
+   * item; the accounts team finalises (lines + tax + issued status)
+   * from the admin side. Status is DRAFT so it doesn't appear as an
+   * issued invoice yet.
+   */
+  async request(input: {
+    userId: string;
+    bookingId: string;
+    recipientName?: string;
+    recipientEmail?: string;
+    notes?: string;
+    /** Pulled from the booking so we don't have to trust the client. */
+    amount: number;
+    currency: string;
+  }) {
+    return this.prisma.invoice.create({
+      data: {
+        number: `REQ-${new Date().getFullYear()}-${nanoid(6).toUpperCase()}`,
+        bookingId: input.bookingId,
+        issuedById: input.userId,
+        recipientName: input.recipientName,
+        recipientEmail: input.recipientEmail,
+        status: InvoiceStatus.DRAFT,
+        subtotal: input.amount,
+        taxAmount: 0,
+        total: input.amount,
+        currency: input.currency,
+        notes: input.notes,
+      },
+    });
+  }
+
   /** Marks invoice as paid (or partially paid) — typically called after payment webhook. */
   markPaid(id: string, fully = true) {
     return this.prisma.invoice.update({

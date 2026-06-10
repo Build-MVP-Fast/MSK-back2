@@ -50,6 +50,31 @@ export class AuthController {
     return this.auth.loginWithEmail(dto, req);
   }
 
+  /**
+   * Mobile guest sign-in. Step 1: dispatch a LOGIN OTP to the email.
+   * Always returns `{ sent: true }` regardless of whether the account
+   * exists — same shape used by the residence-website forgot-password
+   * flow — to avoid account enumeration.
+   */
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('login/otp/request')
+  requestLoginOtp(@Body() body: { email: string }) {
+    return this.auth.requestLoginOtp(body.email);
+  }
+
+  /**
+   * Mobile guest sign-in. Step 2: consume the LOGIN OTP and issue auth
+   * tokens. Response matches /auth/login/email so the mobile authService
+   * can persist `{ token, refreshToken, user }` the same way.
+   */
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('login/otp/verify')
+  loginOtpVerify(@Body() body: { email: string; code: string }) {
+    return this.auth.loginWithOtp(body.email, body.code);
+  }
+
   @Public()
   @Post('password/forgot')
   forgotPassword(@Body() dto: { email: string }) {

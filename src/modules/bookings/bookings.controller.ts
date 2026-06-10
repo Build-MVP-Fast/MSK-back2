@@ -302,6 +302,32 @@ export class BookingsController {
     return this.service.mine(userId, email);
   }
 
+  /**
+   * Current stay context for the mobile guest Home / Profile / Handbook
+   * screens. Picks CHECKED_IN first, then upcoming, then most recent
+   * checked-out. Returns null if the user has no bookings on record.
+   */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('me/current-stay')
+  currentStay(
+    @CurrentUser('id') userId: string,
+    @CurrentUser('email') email: string | null,
+  ) {
+    return this.service.currentStay(userId, email);
+  }
+
+  /** Additional guests attached to the current stay. */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('me/current-stay/guests')
+  currentStayGuests(
+    @CurrentUser('id') userId: string,
+    @CurrentUser('email') email: string | null,
+  ) {
+    return this.service.currentStayGuests(userId, email);
+  }
+
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)

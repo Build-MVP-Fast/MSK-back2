@@ -20,6 +20,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 
 import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateMeDto } from './dto/update-me.dto';
 import { UsersService } from './users.service';
 
 @ApiTags('users')
@@ -58,8 +59,15 @@ export class UsersController {
     return this.service.detail(userId);
   }
 
+  /**
+   * Self-service profile edit. DTO restricts to firstName / lastName /
+   * fullName / email / phone — no role / isActive / companyId. Anything
+   * else in the body is dropped by the global ValidationPipe's
+   * whitelist mode. The mobile guest profile and the Add Email / Add
+   * Phone modals POST through this endpoint.
+   */
   @Patch('me')
-  updateMe(@Body() dto: any, @CurrentUser('id') userId: string) {
+  updateMe(@Body() dto: UpdateMeDto, @CurrentUser('id') userId: string) {
     return this.service.update(userId, dto);
   }
 

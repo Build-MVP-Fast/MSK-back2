@@ -60,6 +60,45 @@ export class AuthService {
     return this.tokens.issue(user);
   }
 
+  /**
+   * Mobile guest sign-in step 1: dispatch a LOGIN-purpose OTP to the
+   * given email. We never reveal whether the account exists — same
+   * `{ sent: true }` response either way — but only actually send when
+   * there is a user, so unknown emails silently no-op.
+   */
+  async requestLoginOtp(email: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (user && user.isActive) {
+      await this.otp.send({
+        destination: email,
+        channel: 'email',
+        purpose: OtpPurpose.LOGIN,
+        userId: user.id,
+      });
+    }
+    return { sent: true };
+  }
+
+  /**
+   * Mobile guest sign-in step 2: consume the LOGIN OTP and issue auth
+   * tokens. Used by the mobile sign-in-otp screen — no PIN/password
+   * required because possession of the email inbox is the proof.
+   */
+  async loginWithOtp(email: string, code: string) {
+    await this.otp.consume({
+      destination: email,
+      code,
+      purpose: OtpPurpose.LOGIN,
+    });
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date(), emailVerified: true },
+    });
+    return this.tokens.issue(user);
+  }
+
   async loginWithEmail(dto: LoginEmailDto, _req: Request) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
