@@ -821,15 +821,35 @@ export class BookingsService {
     assertCheckInAble(booking.status);
 
     const now = new Date();
-    const shouldFlipCheckedIn = dto.physicalVerifyChoice === 'NOW';
+    // Completing the wizard IS the check-in — regardless of whether the
+    // guest opted to verify their ID at reception NOW or LATER. The
+    // physicalVerifyChoice flag is still persisted so reception knows
+    // whether they still need to ID-check the guest, but it must not
+    // gate the status flip (the previous behaviour left the booking as
+    // CONFIRMED after a fully-completed wizard, which then broke
+    // sign-in-by-code because /auth/login/code requires CHECKED_IN).
+    const shouldFlipCheckedIn = booking.status !== BookingStatus.CHECKED_IN;
+
+    // Auto-link the booking to the guest's User account when their
+    // email matches an existing user. Without this, a booking seeded
+    // with `guestUserId = NULL` stays orphaned forever — the guest can
+    // complete the wizard but then /auth/login/code refuses their
+    // check-in code with "not linked to an account". Email is unique on
+    // User, so matching is safe.
+    const guestEmail = dto.email ?? booking.guestEmail;
+    let guestUserIdToSet: string | null = booking.guestUserId;
+    if (!guestUserIdToSet && guestEmail) {
+      const guestUser = await this.prisma.user.findUnique({
+        where: { email: guestEmail },
+        select: { id: true },
+      });
+      guestUserIdToSet = guestUser?.id ?? null;
+    }
 
     // If this is a behalf-booking and the booker is a real signed-up
-    // user, link the booking to their account so the relationship
-    // survives even if the booker's contact details change later. We
-    // only do the lookup when the booker email differs from the guest
-    // email so a self-checkin (where firstName/email belong to the
-    // guest, no separate booker) isn't accidentally claimed by the
-    // wrong account.
+    // user, capture their User id separately (kept distinct from
+    // guestUserId so the booker doesn't accidentally claim someone
+    // else's stay in their own /me/current-stay view).
     let bookedByUserId: string | null = null;
     if (dto.isBehalfBooking && dto.bookerEmail && dto.bookerEmail !== dto.email) {
       const bookerUser = await this.prisma.user.findUnique({
@@ -856,6 +876,9 @@ export class BookingsService {
           bookerLastName: dto.bookerLastName ?? booking.bookerLastName,
           bookerEmail: dto.bookerEmail ?? booking.bookerEmail,
           bookerPhone: dto.bookerPhone ?? booking.bookerPhone,
+          ...(guestUserIdToSet && guestUserIdToSet !== booking.guestUserId && {
+            guestUserId: guestUserIdToSet,
+          }),
           ...(bookedByUserId && { bookedByUserId }),
 
           arrivalTime: dto.arrivalTime ?? booking.arrivalTime,

@@ -102,18 +102,29 @@ export class AuthService {
   /**
    * Mobile guest sign-in via the 6-digit check-in code printed on the
    * post-check-in success screen. Looks up the booking by code, follows
-   * the user link, and issues full JWT tokens. Intentionally only
-   * accepts CHECKED_IN bookings so an expired (pre check-in) or fully
-   * checked-out code can't be used to log in — symmetrical with the
-   * checkout-flow code login.
+   * the user link, and issues full JWT tokens.
+   *
+   * Allowed booking states: PENDING / CONFIRMED / CHECKED_IN. We don't
+   * gate strictly on CHECKED_IN because the code is generated at the
+   * OTP-verify step, so a guest whose wizard submit failed (or who
+   * picked verify-later in the prior buggy version of the wizard) would
+   * otherwise be locked out of their own account. CHECKED_OUT,
+   * CANCELLED, and NO_SHOW codes are still refused.
    */
   async loginWithCheckInCode(code: string) {
+    // Codes are numeric in practice; trim only — uppercase is a no-op
+    // for digits but keeps the door open for future alphanumeric codes
+    // without changing the call sites.
     const normalized = code.trim().toUpperCase();
     const booking = await this.prisma.booking.findUnique({
       where: { checkInCode: normalized },
       include: { guestUser: true },
     });
     if (!booking) throw new UnauthorizedException('Invalid code');
+    const allowed = new Set<string>(['PENDING', 'CONFIRMED', 'CHECKED_IN']);
+    if (!allowed.has(booking.status)) {
+      throw new UnauthorizedException('Invalid code');
+    }
     if (!booking.guestUserId || !booking.guestUser) {
       throw new UnauthorizedException(
         'This code is not linked to an account yet. Sign up to continue.',
