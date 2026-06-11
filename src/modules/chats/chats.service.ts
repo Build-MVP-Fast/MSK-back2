@@ -169,4 +169,32 @@ export class ChatsService {
       include: { members: { include: { user: true } } },
     });
   }
+
+  /**
+   * Find or create a STAFF_GUEST chat for one guest + one category
+   * label. Used by the mobile category picker so tapping "Housekeeping"
+   * always lands the guest in the same persistent thread, and a back-
+   * office user can later be added as a member to respond.
+   */
+  async getOrCreateGuestCategoryChat(userId: string, category: string) {
+    const trimmed = category.trim();
+    const existing = await this.prisma.chat.findFirst({
+      where: {
+        type: ChatType.STAFF_GUEST,
+        category: trimmed,
+        members: { some: { userId, leftAt: null } },
+      },
+      include: { members: { include: { user: true } } },
+    });
+    if (existing) return existing;
+    return this.prisma.chat.create({
+      data: {
+        type: ChatType.STAFF_GUEST,
+        title: trimmed,
+        category: trimmed,
+        members: { create: { userId, role: 'owner' } },
+      },
+      include: { members: { include: { user: true } } },
+    });
+  }
 }
