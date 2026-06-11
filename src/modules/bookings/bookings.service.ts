@@ -410,7 +410,7 @@ export class BookingsService {
    */
   async checkInLookup(reference: string) {
     const booking = await this.prisma.booking.findUnique({
-      where: { reference },
+      where: { reference: reference.trim() },
       include: {
         property: {
           select: {
@@ -595,15 +595,22 @@ export class BookingsService {
    * lastName) was wrong.
    */
   async checkInStart(reference: string, lastName: string) {
+    // Trim before lookup — mobile keyboards auto-add a trailing space
+    // and copy-paste from confirmation emails sometimes adds whitespace
+    // either side. Without normalization, "TEST-2026-0001 " or
+    // "Anderson " both fail with "Reservation not found" even though
+    // the stored row is correct.
+    const normalizedRef = reference.trim();
+    const normalizedLast = lastName.trim().toLowerCase();
     const booking = await this.prisma.booking.findUnique({
-      where: { reference },
+      where: { reference: normalizedRef },
       include: { guestUser: true },
     });
     if (!booking) throw new NotFoundException('Reservation not found');
 
     const lastNameMatch =
-      booking.guestLastName?.toLowerCase() === lastName.toLowerCase() ||
-      booking.guestUser?.lastName?.toLowerCase() === lastName.toLowerCase();
+      booking.guestLastName?.trim().toLowerCase() === normalizedLast ||
+      booking.guestUser?.lastName?.trim().toLowerCase() === normalizedLast;
     if (!lastNameMatch) throw new NotFoundException('Reservation not found');
 
     // Fail fast on non-check-in-able states so the guest doesn't OTP-verify
@@ -639,8 +646,10 @@ export class BookingsService {
    * id; this method only handles persistence + lookup.
    */
   async checkInVerify(reference: string, lastName: string, code: string) {
+    const normalizedRef = reference.trim();
+    const normalizedLast = lastName.trim().toLowerCase();
     const booking = await this.prisma.booking.findUnique({
-      where: { reference },
+      where: { reference: normalizedRef },
       include: {
         guestUser: true,
         property: {
@@ -679,8 +688,8 @@ export class BookingsService {
     if (!booking) throw new NotFoundException('Reservation not found');
 
     const lastNameMatch =
-      booking.guestLastName?.toLowerCase() === lastName.toLowerCase() ||
-      booking.guestUser?.lastName?.toLowerCase() === lastName.toLowerCase();
+      booking.guestLastName?.trim().toLowerCase() === normalizedLast ||
+      booking.guestUser?.lastName?.trim().toLowerCase() === normalizedLast;
     if (!lastNameMatch) throw new NotFoundException('Reservation not found');
 
     const destination = booking.guestEmail ?? booking.guestPhone;
