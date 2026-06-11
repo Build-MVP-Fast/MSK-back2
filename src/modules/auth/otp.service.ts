@@ -58,16 +58,20 @@ export class OtpService {
     // out of the server logs.
     this.logger.debug(`[OTP/${input.purpose}] code=${code} → ${input.destination}`);
 
-    // Best-effort email delivery. EmailService no-ops when SMTP is not
-    // configured; we don't want a missing transport to fail the request
-    // because the OTP record is already persisted.
+    // Best-effort email delivery. The OTP record is already persisted, so
+    // a broken or slow SMTP transport must not block (or fail) the API
+    // response — fire-and-forget the send. Without this, when SMTP creds
+    // were wrong the request hung ~30s waiting on nodemailer and mobile
+    // clients tripped their own 30s AbortController timeout, surfacing as
+    // a "fetch cancelled" error to the user even though the OTP was
+    // successfully generated.
     if (input.channel === 'email') {
-      try {
-        const { subject, html } = this.composeEmail(input.purpose, input.destination, code);
-        await this.email.send(input.destination, subject, html);
-      } catch (err) {
-        this.logger.warn(`OTP email send failed (${input.purpose}): ${err instanceof Error ? err.message : err}`);
-      }
+      const { subject, html } = this.composeEmail(input.purpose, input.destination, code);
+      void this.email.send(input.destination, subject, html).catch((err) => {
+        this.logger.warn(
+          `OTP email send failed (${input.purpose}): ${err instanceof Error ? err.message : err}`,
+        );
+      });
     }
 
     return { sent: true };
