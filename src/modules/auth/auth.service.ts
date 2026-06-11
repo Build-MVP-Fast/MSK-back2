@@ -99,6 +99,36 @@ export class AuthService {
     return this.tokens.issue(user);
   }
 
+  /**
+   * Mobile guest sign-in via the 6-digit check-in code printed on the
+   * post-check-in success screen. Looks up the booking by code, follows
+   * the user link, and issues full JWT tokens. Intentionally only
+   * accepts CHECKED_IN bookings so an expired (pre check-in) or fully
+   * checked-out code can't be used to log in — symmetrical with the
+   * checkout-flow code login.
+   */
+  async loginWithCheckInCode(code: string) {
+    const normalized = code.trim().toUpperCase();
+    const booking = await this.prisma.booking.findUnique({
+      where: { checkInCode: normalized },
+      include: { guestUser: true },
+    });
+    if (!booking) throw new UnauthorizedException('Invalid code');
+    if (!booking.guestUserId || !booking.guestUser) {
+      throw new UnauthorizedException(
+        'This code is not linked to an account yet. Sign up to continue.',
+      );
+    }
+    if (!booking.guestUser.isActive) {
+      throw new UnauthorizedException('Invalid code');
+    }
+    await this.prisma.user.update({
+      where: { id: booking.guestUserId },
+      data: { lastLoginAt: new Date() },
+    });
+    return this.tokens.issue(booking.guestUser);
+  }
+
   async loginWithEmail(dto: LoginEmailDto, _req: Request) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },

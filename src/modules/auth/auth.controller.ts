@@ -75,6 +75,19 @@ export class AuthController {
     return this.auth.loginWithOtp(body.email, body.code);
   }
 
+  /**
+   * Mobile guest sign-in via the 6-digit check-in code. No email required;
+   * the code itself identifies the booking and (transitively) the user.
+   * Only works for CHECKED_IN bookings whose checkInCode was issued and
+   * are linked to a real account.
+   */
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('login/code')
+  loginByCheckInCode(@Body() body: { code: string }) {
+    return this.auth.loginWithCheckInCode(body.code);
+  }
+
   @Public()
   @Post('password/forgot')
   forgotPassword(@Body() dto: { email: string }) {
