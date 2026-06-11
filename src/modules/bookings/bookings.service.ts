@@ -606,6 +606,13 @@ export class BookingsService {
       booking.guestUser?.lastName?.toLowerCase() === lastName.toLowerCase();
     if (!lastNameMatch) throw new NotFoundException('Reservation not found');
 
+    // Fail fast on non-check-in-able states so the guest doesn't OTP-verify
+    // and fill in the entire wizard only to be rejected at submit time.
+    // Re-running the wizard against a CHECKED_IN or CHECKED_OUT booking
+    // used to silently overwrite signature/timestamps; reject up front
+    // with a state-aware message so the UI can route appropriately.
+    assertCheckInAble(booking.status);
+
     const destination = booking.guestEmail ?? booking.guestPhone;
     if (!destination) {
       throw new BadRequestException('No contact on file for reservation');
@@ -799,9 +806,10 @@ export class BookingsService {
       where: { id: bookingId },
     });
     if (!booking) throw new NotFoundException('Booking not found');
-    if (booking.status === BookingStatus.CANCELLED || booking.status === BookingStatus.NO_SHOW) {
-      throw new BadRequestException('Booking is not in a check-in-able state');
-    }
+    // Defense-in-depth: even if a stale check-in token was reused, never
+    // let the submit overwrite a CHECKED_IN or CHECKED_OUT booking's
+    // signature / checkedInAt / additional-guest rows.
+    assertCheckInAble(booking.status);
 
     const now = new Date();
     const shouldFlipCheckedIn = dto.physicalVerifyChoice === 'NOW';
@@ -1384,4 +1392,47 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+/**
+ * Reject the wizard for any booking whose state isn't open to check-in.
+ * Throws a BadRequestException with a status-specific message so the
+ * mobile wizard can render the right copy (and route the guest to home
+ * or sign-in) instead of dead-ending in a generic alert.
+ *
+ * The thrown exception's body includes a machine-readable `reason` code
+ * (`ALREADY_CHECKED_IN`, `ALREADY_CHECKED_OUT`, `CANCELLED`, `NO_SHOW`)
+ * so the client can branch without parsing the human message.
+ */
+function assertCheckInAble(status: BookingStatus): void {
+  if (status === BookingStatus.PENDING || status === BookingStatus.CONFIRMED) {
+    return;
+  }
+  const map: Partial<Record<BookingStatus, { reason: string; message: string }>> = {
+    [BookingStatus.CHECKED_IN]: {
+      reason: 'ALREADY_CHECKED_IN',
+      message: "You're already checked in for this reservation.",
+    },
+    [BookingStatus.CHECKED_OUT]: {
+      reason: 'ALREADY_CHECKED_OUT',
+      message: 'This stay has already ended.',
+    },
+    [BookingStatus.CANCELLED]: {
+      reason: 'CANCELLED',
+      message: 'This reservation was cancelled.',
+    },
+    [BookingStatus.NO_SHOW]: {
+      reason: 'NO_SHOW',
+      message: 'This reservation is closed.',
+    },
+  };
+  const entry = map[status] ?? {
+    reason: 'NOT_CHECK_IN_ABLE',
+    message: 'This reservation is not currently open for check-in.',
+  };
+  throw new BadRequestException({
+    statusCode: 400,
+    message: entry.message,
+    reason: entry.reason,
+  });
 }
