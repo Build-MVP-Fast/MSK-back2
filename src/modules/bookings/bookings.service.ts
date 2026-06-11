@@ -13,6 +13,7 @@ import {
   BookingStatus,
   OtpPurpose,
   Prisma,
+  UserRole,
 } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { nanoid } from 'nanoid';
@@ -830,20 +831,52 @@ export class BookingsService {
     // sign-in-by-code because /auth/login/code requires CHECKED_IN).
     const shouldFlipCheckedIn = booking.status !== BookingStatus.CHECKED_IN;
 
-    // Auto-link the booking to the guest's User account when their
-    // email matches an existing user. Without this, a booking seeded
-    // with `guestUserId = NULL` stays orphaned forever — the guest can
-    // complete the wizard but then /auth/login/code refuses their
-    // check-in code with "not linked to an account". Email is unique on
-    // User, so matching is safe.
+    // Auto-link the booking to a User account. If a User with the
+    // guest's email already exists, link to it. Otherwise create a
+    // lightweight WEB_GUEST account from the wizard's contact fields so
+    // the guest can immediately sign in via /auth/login/code from the
+    // success screen — without this, a booking with an unregistered
+    // guest email stays orphaned forever and "Sign In with check-in
+    // code" dead-ends with "not linked to an account yet".
     const guestEmail = dto.email ?? booking.guestEmail;
+    const guestFirstName = dto.firstName ?? booking.guestFirstName ?? undefined;
+    const guestLastName = dto.lastName ?? booking.guestLastName ?? undefined;
+    const guestPhone = dto.phone ?? booking.guestPhone ?? undefined;
     let guestUserIdToSet: string | null = booking.guestUserId;
     if (!guestUserIdToSet && guestEmail) {
       const guestUser = await this.prisma.user.findUnique({
         where: { email: guestEmail },
         select: { id: true },
       });
-      guestUserIdToSet = guestUser?.id ?? null;
+      if (guestUser) {
+        guestUserIdToSet = guestUser.id;
+      } else {
+        // Create a minimal guest account. authProvider=OTP because the
+        // canonical way back in is the emailed login OTP or the check-in
+        // code itself; no password is set. emailVerified=true because
+        // the OTP-verified check-in already proved the guest controls
+        // this address. A GuestProfile row is created alongside so any
+        // future "view my stays" endpoint has somewhere to hang.
+        const fullName =
+          [guestFirstName ?? '', guestLastName ?? ''].filter(Boolean).join(' ').trim() ||
+          null;
+        const created = await this.prisma.user.create({
+          data: {
+            email: guestEmail,
+            phone: guestPhone,
+            firstName: guestFirstName,
+            lastName: guestLastName,
+            fullName,
+            role: UserRole.WEB_GUEST,
+            primaryRole: UserRole.WEB_GUEST,
+            authProvider: AuthProvider.OTP_ONLY,
+            emailVerified: true,
+            guestProfile: { create: {} },
+          },
+          select: { id: true },
+        });
+        guestUserIdToSet = created.id;
+      }
     }
 
     // If this is a behalf-booking and the booker is a real signed-up
