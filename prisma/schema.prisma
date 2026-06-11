@@ -364,6 +364,7 @@ model User {
 
   // Activity
   bookingsAsGuest    Booking[]            @relation("BookingGuest")
+  bookingsBookedFor  Booking[]            @relation("BookingBookedBy")
   bookingsCreated    Booking[]            @relation("BookingCreatedBy")
   invoicesIssued     Invoice[]            @relation("InvoiceIssuedBy")
   ordersCreated      Order[]              @relation("OrderCreatedBy")
@@ -954,6 +955,23 @@ model Booking {
 
   createdById     String?
   createdBy       User?         @relation("BookingCreatedBy", fields: [createdById], references: [id])
+
+  // ── On-behalf-of bookings ─────────────────────────────────────────
+  // When a guest checks in on behalf of someone else, the booker (the
+  // person operating the device) and the actual guest are distinct
+  // identities. `guestUser/guestEmail/guestFirstName/guestLastName`
+  // continue to describe the occupant; the `booker*` fields describe
+  // the operator. `bookedByUserId` is set when the booker is signed in
+  // at wizard time so the relationship survives later contact lookups;
+  // otherwise just the contact strings are kept.
+  bookedByUserId  String?
+  bookedByUser    User?         @relation("BookingBookedBy", fields: [bookedByUserId], references: [id])
+  bookerFirstName String?
+  bookerLastName  String?
+  bookerEmail     String?
+  bookerPhone     String?
+  isBehalfBooking Boolean       @default(false)
+
   metadata        Json?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt

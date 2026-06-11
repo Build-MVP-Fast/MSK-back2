@@ -133,4 +133,29 @@ export class CheckInSubmitDto {
 
   @IsBoolean()
   acceptedTerms!: boolean;
+
+  // ── On-behalf-of bookings ────────────────────────────────────────────
+  // When true, the contact fields above describe the *guest* (occupant)
+  // and the booker* fields below describe the *booker* (operator). The
+  // backend persists both, links the booking to the booker's User row
+  // when known, and sends the confirmation email to both addresses.
+  @IsOptional()
+  @IsBoolean()
+  isBehalfBooking?: boolean;
+
+  @IsOptional()
+  @IsString()
+  bookerFirstName?: string;
+
+  @IsOptional()
+  @IsString()
+  bookerLastName?: string;
+
+  @IsOptional()
+  @IsEmail()
+  bookerEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  bookerPhone?: string;
 }

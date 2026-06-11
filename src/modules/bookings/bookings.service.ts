@@ -814,6 +814,22 @@ export class BookingsService {
     const now = new Date();
     const shouldFlipCheckedIn = dto.physicalVerifyChoice === 'NOW';
 
+    // If this is a behalf-booking and the booker is a real signed-up
+    // user, link the booking to their account so the relationship
+    // survives even if the booker's contact details change later. We
+    // only do the lookup when the booker email differs from the guest
+    // email so a self-checkin (where firstName/email belong to the
+    // guest, no separate booker) isn't accidentally claimed by the
+    // wrong account.
+    let bookedByUserId: string | null = null;
+    if (dto.isBehalfBooking && dto.bookerEmail && dto.bookerEmail !== dto.email) {
+      const bookerUser = await this.prisma.user.findUnique({
+        where: { email: dto.bookerEmail },
+        select: { id: true },
+      });
+      bookedByUserId = bookerUser?.id ?? null;
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.booking.update({
         where: { id: bookingId },
@@ -823,6 +839,15 @@ export class BookingsService {
           guestLastName: dto.lastName ?? booking.guestLastName,
           guestEmail: dto.email ?? booking.guestEmail,
           guestPhone: dto.phone ?? booking.guestPhone,
+
+          // Behalf-booking fields. Persist whatever the wizard provided —
+          // the booker is a separate identity from the guest above.
+          isBehalfBooking: dto.isBehalfBooking ?? booking.isBehalfBooking,
+          bookerFirstName: dto.bookerFirstName ?? booking.bookerFirstName,
+          bookerLastName: dto.bookerLastName ?? booking.bookerLastName,
+          bookerEmail: dto.bookerEmail ?? booking.bookerEmail,
+          bookerPhone: dto.bookerPhone ?? booking.bookerPhone,
+          ...(bookedByUserId && { bookedByUserId }),
 
           arrivalTime: dto.arrivalTime ?? booking.arrivalTime,
           wantsRoomTypeChange: dto.wantsRoomTypeChange ?? booking.wantsRoomTypeChange,
@@ -857,7 +882,62 @@ export class BookingsService {
       }
     });
 
+    // Send the check-in code to whoever needs it. For a self-checkin
+    // that's just the guest; for a behalf-booking it's both the guest
+    // (so the actual occupant can present it at reception) and the
+    // booker (so the operator has it too). Fire-and-forget — a slow or
+    // misconfigured mailer mustn't block the wizard's submit response.
+    void this.sendCheckInCodeEmails(bookingId, !!dto.isBehalfBooking).catch((err) => {
+      this.logger.warn(
+        `Post-submit check-in code email failed for booking ${bookingId}: ${err instanceof Error ? err.message : err}`,
+      );
+    });
+
     return this.detail(bookingId);
+  }
+
+  /**
+   * Send the booking's `checkInCode` to one or both addresses depending
+   * on whether it's a behalf-booking. Quietly does nothing if the code
+   * isn't issued yet (shouldn't happen at submit time, but defensive).
+   */
+  private async sendCheckInCodeEmails(bookingId: string, isBehalf: boolean): Promise<void> {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        reference: true,
+        checkInCode: true,
+        guestEmail: true,
+        guestFirstName: true,
+        bookerEmail: true,
+        bookerFirstName: true,
+      },
+    });
+    if (!booking?.checkInCode) return;
+    const subject = `Your MSK check-in code: ${booking.checkInCode}`;
+    const buildHtml = (recipientFirstName: string | null, isForBooker: boolean) => `
+      <div style="font-family:system-ui,sans-serif;max-width:480px;margin:auto;padding:24px">
+        <h2 style="margin:0 0 12px">Hi ${escapeHtml(recipientFirstName ?? 'there')},</h2>
+        <p style="color:#555;line-height:1.5">
+          ${isForBooker
+            ? 'Here is the check-in code for the reservation you booked on someone\'s behalf. Please forward it to the guest if helpful.'
+            : 'Your check-in code is below. Show it at reception to be greeted faster.'}
+        </p>
+        <div style="font-size:28px;letter-spacing:6px;font-weight:700;
+                    background:#FFD8B5;border-radius:12px;padding:18px 24px;
+                    text-align:center;margin:18px 0;color:#222">
+          ${booking.checkInCode}
+        </div>
+        <p style="color:#888;font-size:13px">Reservation ${booking.reference}</p>
+      </div>`;
+    const sends: Array<Promise<void>> = [];
+    if (booking.guestEmail) {
+      sends.push(this.email.send(booking.guestEmail, subject, buildHtml(booking.guestFirstName, false)));
+    }
+    if (isBehalf && booking.bookerEmail && booking.bookerEmail !== booking.guestEmail) {
+      sends.push(this.email.send(booking.bookerEmail, subject, buildHtml(booking.bookerFirstName, true)));
+    }
+    await Promise.all(sends);
   }
 
   /**
