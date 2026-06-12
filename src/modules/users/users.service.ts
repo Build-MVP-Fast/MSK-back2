@@ -10,6 +10,7 @@ import * as crypto from 'crypto';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../notifications/email.service';
+import { StorageService } from '../photos/storage.service';
 
 import { CreateUserDto } from './dto/create-user.dto';
 
@@ -28,6 +29,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly storage: StorageService,
   ) {}
 
   list(filter: { role?: UserRole; companyId?: string; q?: string } = {}) {
@@ -199,6 +201,43 @@ export class UsersService {
 
   removeAdditionalGuest(id: string) {
     return this.prisma.additionalGuest.delete({ where: { id } });
+  }
+
+  /**
+   * Persist a guest's identity document or signature image. Stores the
+   * uploaded file via the existing StorageService and writes the URL
+   * into the User.metadata JSON column under either `idDocumentUrl`
+   * (kind=ID) or `signatureUrl` (kind=SIGNATURE) — avoids a migration
+   * since the column already exists.
+   */
+  async uploadGuestDocument(
+    userId: string,
+    kind: 'ID' | 'SIGNATURE',
+    file: Express.Multer.File,
+  ) {
+    const folder = kind === 'SIGNATURE' ? 'guest-signatures' : 'guest-id-documents';
+    const stored = await this.storage.upload(
+      file.buffer,
+      file.mimetype || 'application/octet-stream',
+      folder,
+    );
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { metadata: true },
+    });
+    const prev =
+      (user?.metadata && typeof user.metadata === 'object' && !Array.isArray(user.metadata))
+        ? (user.metadata as Record<string, unknown>)
+        : {};
+    const next: Record<string, unknown> = {
+      ...prev,
+      [kind === 'SIGNATURE' ? 'signatureUrl' : 'idDocumentUrl']: stored.url,
+    };
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { metadata: next as Prisma.InputJsonValue },
+    });
+    return { url: stored.url };
   }
 }
 

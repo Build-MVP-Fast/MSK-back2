@@ -8,9 +8,12 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -69,6 +72,28 @@ export class UsersController {
   @Patch('me')
   updateMe(@Body() dto: UpdateMeDto, @CurrentUser('id') userId: string) {
     return this.service.update(userId, dto);
+  }
+
+  /**
+   * Self-service upload for the post-check-in profile screen. Accepts a
+   * single image file plus a `kind` field of `ID` or `SIGNATURE`; the
+   * stored URL is written into the corresponding slot on User.metadata
+   * (idDocumentUrl / signatureUrl) so the existing JSON column carries
+   * it without a schema migration.
+   */
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 } }))
+  @Post('me/document')
+  uploadMeDocument(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('kind') kind: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    if (!file) throw new BadRequestException('File is required');
+    if (kind !== 'ID' && kind !== 'SIGNATURE') {
+      throw new BadRequestException('kind must be "ID" or "SIGNATURE"');
+    }
+    return this.service.uploadGuestDocument(userId, kind, file);
   }
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
