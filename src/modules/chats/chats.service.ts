@@ -159,15 +159,51 @@ export class ChatsService {
     });
   }
 
-  /** List staff-guest chats grouped by category (e.g. Housekeeping). */
-  listGuestCategoryChats(userId: string) {
-    return this.prisma.chat.findMany({
+  /**
+   * List a guest's staff-guest category chats for the in-app chat
+   * history screen. Each row carries the last-activity time, total
+   * message count and the guest's unread count so the mobile list can
+   * render without extra round-trips. Ordered most-recent-first.
+   */
+  async listGuestCategoryChats(userId: string) {
+    const chats = await this.prisma.chat.findMany({
       where: {
         type: ChatType.STAFF_GUEST,
         members: { some: { userId, leftAt: null } },
       },
-      include: { members: { include: { user: true } } },
+      include: {
+        members: { where: { userId }, select: { lastReadAt: true } },
+        messages: { take: 1, orderBy: { createdAt: 'desc' } },
+        _count: { select: { messages: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
     });
+
+    return Promise.all(
+      chats.map(async (chat) => {
+        const lastReadAt = chat.members[0]?.lastReadAt ?? null;
+        const lastMessage = chat.messages[0] ?? null;
+        const unreadCount = await this.prisma.chatMessage.count({
+          where: {
+            chatId: chat.id,
+            senderId: { not: userId },
+            ...(lastReadAt && { createdAt: { gt: lastReadAt } }),
+          },
+        });
+        return {
+          id: chat.id,
+          type: chat.type,
+          title: chat.title,
+          category: chat.category,
+          createdAt: chat.createdAt,
+          updatedAt: chat.updatedAt,
+          messageCount: chat._count.messages,
+          unreadCount,
+          lastMessageAt: lastMessage?.createdAt ?? null,
+          lastMessagePreview: lastMessage?.body ?? null,
+        };
+      }),
+    );
   }
 
   /**
