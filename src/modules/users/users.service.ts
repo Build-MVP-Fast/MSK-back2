@@ -212,10 +212,15 @@ export class UsersService {
    */
   async uploadGuestDocument(
     userId: string,
-    kind: 'ID' | 'SIGNATURE',
+    kind: 'ID' | 'SIGNATURE' | 'SELFIE',
     file: Express.Multer.File,
   ) {
-    const folder = kind === 'SIGNATURE' ? 'guest-signatures' : 'guest-id-documents';
+    const folder =
+      kind === 'SIGNATURE'
+        ? 'guest-signatures'
+        : kind === 'SELFIE'
+          ? 'guest-selfies'
+          : 'guest-id-documents';
     const stored = await this.storage.upload(
       file.buffer,
       file.mimetype || 'application/octet-stream',
@@ -229,9 +234,15 @@ export class UsersService {
       (user?.metadata && typeof user.metadata === 'object' && !Array.isArray(user.metadata))
         ? (user.metadata as Record<string, unknown>)
         : {};
+    const metadataKey =
+      kind === 'SIGNATURE'
+        ? 'signatureUrl'
+        : kind === 'SELFIE'
+          ? 'selfieUrl'
+          : 'idDocumentUrl';
     const next: Record<string, unknown> = {
       ...prev,
-      [kind === 'SIGNATURE' ? 'signatureUrl' : 'idDocumentUrl']: stored.url,
+      [metadataKey]: stored.url,
     };
     await this.prisma.user.update({
       where: { id: userId },

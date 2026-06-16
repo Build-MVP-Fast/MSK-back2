@@ -90,8 +90,8 @@ export class UsersController {
     @CurrentUser('id') userId: string,
   ) {
     if (!file) throw new BadRequestException('File is required');
-    if (kind !== 'ID' && kind !== 'SIGNATURE') {
-      throw new BadRequestException('kind must be "ID" or "SIGNATURE"');
+    if (kind !== 'ID' && kind !== 'SIGNATURE' && kind !== 'SELFIE') {
+      throw new BadRequestException('kind must be "ID", "SIGNATURE", or "SELFIE"');
     }
     return this.service.uploadGuestDocument(userId, kind, file);
   }
