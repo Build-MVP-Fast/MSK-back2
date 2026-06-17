@@ -16,6 +16,7 @@ import {
   LoginPinDto,
   RegisterAdminDto,
   RegisterGuestDto,
+  RegisterHotelierDto,
   RegisterStaffDto,
   RegisterWebGuestDto,
   RefreshTokenDto,
@@ -125,6 +126,18 @@ export class AuthController {
   @Post('register/staff')
   registerStaff(@Body() dto: RegisterStaffDto) {
     return this.auth.registerStaff(dto);
+  }
+
+  /**
+   * Mobile hotelier (operator) onboarding endpoint. Public — creates a
+   * brand-new Company tenant and a HOTELIER user, returns tokens so the
+   * wizard can drop them straight into their hotel's in-app dashboard.
+   * Distinct from /register/staff and /register/admin.
+   */
+  @Public()
+  @Post('register/hotelier')
+  registerHotelier(@Body() dto: RegisterHotelierDto) {
+    return this.auth.registerHotelier(dto);
   }
 
   @Public()

@@ -99,7 +99,7 @@ export class UsersController {
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get(':id')
   detail(@Param('id') id: string) {
-    return this.service.detail(id);
+    return this.service.detailForAdmin(id);
   }
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)

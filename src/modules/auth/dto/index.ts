@@ -90,6 +90,46 @@ export class RegisterAdminDto {
 }
 
 /**
+ * Mobile onboarding for a hotelier — an external operator who runs a
+ * property and is the customer of the MSK platform. Creates a User with
+ * role HOTELIER and a brand-new Company tenant for their hotel.
+ *
+ * Intentionally separate from RegisterStaffDto / RegisterAdminDto:
+ *   - STAFF / SUPERVISOR / RECEPTIONIST / SUPPLIER are *employees of*
+ *     a hotelier and are created by that hotelier within an existing
+ *     Company.
+ *   - ADMIN / SUPER_USER are MSK's own platform team and are created
+ *     internally via msk-admin.
+ *   - HOTELIER is the only path open to public self-signup from the app.
+ */
+export class RegisterHotelierDto {
+  @IsEmail()
+  email!: string;
+
+  @IsString()
+  @MinLength(8)
+  password!: string;
+
+  @IsString()
+  firstName!: string;
+
+  @IsString()
+  lastName!: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  hotelName?: string;
+
+  @IsOptional()
+  @IsString()
+  selfieUrl?: string;
+}
+
+/**
  * Used by the mobile staff onboarding wizard. Backend caller picks the
  * role (STAFF / SUPERVISOR / RECEPTIONIST / SUPPLIER); ADMIN / SUPER_USER
  * have their own dedicated registration paths.

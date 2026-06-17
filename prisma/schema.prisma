@@ -39,6 +39,7 @@ enum UserRole {
   STAFF
   SUPERVISOR
   SUPPLIER
+  HOTELIER
   ADMIN
   SUPER_USER
 }
@@ -335,6 +336,11 @@ model User {
   emailVerified Boolean      @default(false)
   phoneVerified Boolean      @default(false)
   isActive      Boolean      @default(true)
+  // Hidden test users — present in DB and can sign in normally, but
+  // never appear in any /users listing endpoint, even for SUPER_USER.
+  // Used by the engineering team to keep test accounts invisible to
+  // staff browsing the admin portal.
+  isHidden      Boolean      @default(false)
   locale        String?      @default("en")
   timezone      String?      @default("UTC")
   metadata      Json?

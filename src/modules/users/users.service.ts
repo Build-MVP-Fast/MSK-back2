@@ -45,6 +45,10 @@ export class UsersService {
           ],
         }),
         deletedAt: null,
+        // Hidden test users are never returned from /users — invisible
+        // to every role, including SUPER_USER, so engineering can keep
+        // sandbox accounts off the admin portal.
+        isHidden: false,
       },
       orderBy: { createdAt: 'desc' },
       take: 200,
@@ -63,6 +67,18 @@ export class UsersService {
       },
     });
     if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
+
+  /**
+   * Admin-side detail lookup. Refuses to surface hidden users to any
+   * caller — even if you know the exact id — so test accounts can't be
+   * fingerprinted by guessing UUIDs. /users/me keeps using `detail()`
+   * directly so a hidden user can still read their own profile.
+   */
+  async detailForAdmin(id: string) {
+    const user = await this.detail(id);
+    if (user.isHidden) throw new NotFoundException('User not found');
     return user;
   }
 

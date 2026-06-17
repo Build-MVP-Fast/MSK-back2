@@ -12,6 +12,7 @@ import {
   LoginPinDto,
   RegisterAdminDto,
   RegisterGuestDto,
+  RegisterHotelierDto,
   RegisterStaffDto,
   RegisterWebGuestDto,
   ReservationEnquiryDto,
@@ -266,6 +267,74 @@ export class AuthService {
     });
 
     return { userId: user.id, otpSent: true };
+  }
+
+  /**
+   * Public self-signup for an external hotelier (the operator who runs a
+   * property — the customer of the MSK platform). Creates a User with
+   * role HOTELIER, a brand-new Company tenant for their hotel, and
+   * password credentials, then issues tokens so the wizard can drop them
+   * straight into the in-app admin dashboard.
+   *
+   * Distinct from registerStaff (which creates employees inside an
+   * existing hotelier's Company) and registerAdmin (MSK platform admin,
+   * separate path entirely).
+   */
+  async registerHotelier(dto: RegisterHotelierDto) {
+    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    if (existing) throw new BadRequestException('Email already registered');
+    const fullName = `${dto.firstName} ${dto.lastName}`.trim();
+    const companyName = dto.hotelName?.trim() || `${fullName}'s Hotel`;
+    const companySlug =
+      companyName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40) +
+      '-' +
+      Date.now().toString(36);
+    try {
+      const user = await this.prisma.user.create({
+        data: {
+          email: dto.email,
+          phone: dto.phone,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          fullName,
+          role: UserRole.HOTELIER,
+          primaryRole: UserRole.HOTELIER,
+          authProvider: AuthProvider.PASSWORD,
+          emailVerified: true,
+          lastLoginAt: new Date(),
+          company: {
+            create: {
+              name: companyName,
+              slug: companySlug,
+            },
+          },
+          credentials: {
+            create: {
+              provider: AuthProvider.PASSWORD,
+              secretHash: await argon2.hash(dto.password),
+            },
+          },
+          ...(dto.selfieUrl && {
+            metadata: { selfieUrl: dto.selfieUrl } as Prisma.InputJsonValue,
+          }),
+        },
+      });
+      return this.tokens.issue(user);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('Unique constraint') || message.includes('UNIQUE constraint')) {
+        throw new BadRequestException('Email already in use.');
+      }
+      // eslint-disable-next-line no-console
+      console.error('[registerHotelier] failed', err);
+      throw new BadRequestException(
+        `Could not create account: ${message.slice(0, 240)}`,
+      );
+    }
   }
 
   /**
