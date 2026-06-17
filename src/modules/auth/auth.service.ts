@@ -12,6 +12,7 @@ import {
   LoginPinDto,
   RegisterAdminDto,
   RegisterGuestDto,
+  RegisterStaffDto,
   RegisterWebGuestDto,
   ReservationEnquiryDto,
   ResetPasswordDto,
@@ -265,6 +266,58 @@ export class AuthService {
     });
 
     return { userId: user.id, otpSent: true };
+  }
+
+  /**
+   * Mobile staff onboarding wizard registration. Creates a User with the
+   * requested role (defaulting to STAFF), hashes the password, attaches a
+   * minimal StaffProfile, and immediately issues auth tokens so the
+   * wizard can drop the new staff member straight into the dashboard.
+   */
+  async registerStaff(dto: RegisterStaffDto) {
+    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    if (existing) throw new BadRequestException('Email already registered');
+    const role = (dto.role ?? 'STAFF') as UserRole;
+    const fullName = `${dto.firstName} ${dto.lastName}`.trim();
+    const user = await this.prisma.user.create({
+      data: {
+        email: dto.email,
+        phone: dto.phone,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        fullName,
+        role,
+        primaryRole: role,
+        authProvider: AuthProvider.PASSWORD,
+        emailVerified: true,
+        staffProfile: {
+          create: {
+            position: role.charAt(0) + role.slice(1).toLowerCase(),
+          },
+        },
+        credentials: {
+          create: {
+            provider: AuthProvider.PASSWORD,
+            secretHash: await argon2.hash(dto.password),
+          },
+        },
+        ...(dto.address || dto.dateOfBirth || dto.selfieUrl
+          ? {
+              metadata: {
+                ...(dto.address && { address: dto.address }),
+                ...(dto.dateOfBirth && { dateOfBirth: dto.dateOfBirth }),
+                ...(dto.selfieUrl && { selfieUrl: dto.selfieUrl }),
+                ...(dto.username && { username: dto.username }),
+              },
+            }
+          : {}),
+      },
+    });
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
+    return this.tokens.issue(user);
   }
 
   async loginWithPin(dto: LoginPinDto, _req: Request) {

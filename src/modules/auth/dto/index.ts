@@ -89,6 +89,50 @@ export class RegisterAdminDto {
   companyName?: string;
 }
 
+/**
+ * Used by the mobile staff onboarding wizard. Backend caller picks the
+ * role (STAFF / SUPERVISOR / RECEPTIONIST / SUPPLIER); ADMIN / SUPER_USER
+ * have their own dedicated registration paths.
+ */
+export class RegisterStaffDto {
+  @IsEmail()
+  email!: string;
+
+  @IsString()
+  @MinLength(8)
+  password!: string;
+
+  @IsString()
+  firstName!: string;
+
+  @IsString()
+  lastName!: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  username?: string;
+
+  @IsOptional()
+  @IsString()
+  dateOfBirth?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  selfieUrl?: string;
+
+  @IsOptional()
+  @IsIn(['STAFF', 'SUPERVISOR', 'RECEPTIONIST', 'SUPPLIER'])
+  role?: 'STAFF' | 'SUPERVISOR' | 'RECEPTIONIST' | 'SUPPLIER';
+}
+
 export class LoginPinDto {
   @IsOptional()
   @IsString()

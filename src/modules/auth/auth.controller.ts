@@ -16,6 +16,7 @@ import {
   LoginPinDto,
   RegisterAdminDto,
   RegisterGuestDto,
+  RegisterStaffDto,
   RegisterWebGuestDto,
   RefreshTokenDto,
   RequestOtpDto,
@@ -112,6 +113,18 @@ export class AuthController {
   @Post('register/admin')
   registerAdmin(@Body() dto: RegisterAdminDto) {
     return this.auth.registerAdmin(dto);
+  }
+
+  /**
+   * Mobile staff onboarding wizard endpoint. Public — used by the
+   * "(staff-wizard)" flow to create a STAFF / SUPERVISOR /
+   * RECEPTIONIST / SUPPLIER account and return tokens so the new user
+   * lands on their dashboard immediately.
+   */
+  @Public()
+  @Post('register/staff')
+  registerStaff(@Body() dto: RegisterStaffDto) {
+    return this.auth.registerStaff(dto);
   }
 
   @Public()
