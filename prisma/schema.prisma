@@ -36,6 +36,9 @@ datasource db {
 enum UserRole {
   WEB_GUEST
   RECEPTIONIST
+  STAFF
+  SUPERVISOR
+  SUPPLIER
   ADMIN
   SUPER_USER
 }

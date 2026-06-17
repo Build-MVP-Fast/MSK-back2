@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
-import { AuthProvider, OtpPurpose, UserRole } from '@prisma/client';
+import { AuthProvider, OtpPurpose, Prisma, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { Request } from 'express';
 
@@ -277,8 +277,35 @@ export class AuthService {
   async registerStaff(dto: RegisterStaffDto) {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (existing) throw new BadRequestException('Email already registered');
-    const role = (dto.role ?? 'STAFF') as UserRole;
+    const roleStr = dto.role ?? 'STAFF';
+    const role = UserRole[roleStr as keyof typeof UserRole];
     const fullName = `${dto.firstName} ${dto.lastName}`.trim();
+
+    // Build the metadata blob first as a plain object so any
+    // serialization issue is obvious and isolated from the create call.
+    const metadata: Record<string, string> = {};
+    if (dto.address) metadata.address = dto.address;
+    if (dto.dateOfBirth) metadata.dateOfBirth = dto.dateOfBirth;
+    if (dto.selfieUrl) metadata.selfieUrl = dto.selfieUrl;
+    if (dto.username) metadata.username = dto.username;
+
+    // Attach a role-appropriate profile row. SUPPLIER gets a
+    // SupplierProfile (companyName defaulted to the user's full name;
+    // admin can edit later); everyone else gets a StaffProfile so
+    // dashboard screens have something to read. Typed as a partial
+    // UserCreateInput so we can spread it into the create call without
+    // tripping TS's required-field check on the wider type.
+    const profileBlock: Pick<Prisma.UserCreateInput, 'staffProfile' | 'supplierProfile'> =
+      role === UserRole.SUPPLIER
+        ? { supplierProfile: { create: { companyName: fullName || dto.email } } }
+        : {
+            staffProfile: {
+              create: {
+                position: roleStr.charAt(0) + roleStr.slice(1).toLowerCase(),
+              },
+            },
+          };
+
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
@@ -290,32 +317,18 @@ export class AuthService {
         primaryRole: role,
         authProvider: AuthProvider.PASSWORD,
         emailVerified: true,
-        staffProfile: {
-          create: {
-            position: role.charAt(0) + role.slice(1).toLowerCase(),
-          },
-        },
+        lastLoginAt: new Date(),
+        ...(Object.keys(metadata).length > 0 && {
+          metadata: metadata as Prisma.InputJsonValue,
+        }),
+        ...profileBlock,
         credentials: {
           create: {
             provider: AuthProvider.PASSWORD,
             secretHash: await argon2.hash(dto.password),
           },
         },
-        ...(dto.address || dto.dateOfBirth || dto.selfieUrl
-          ? {
-              metadata: {
-                ...(dto.address && { address: dto.address }),
-                ...(dto.dateOfBirth && { dateOfBirth: dto.dateOfBirth }),
-                ...(dto.selfieUrl && { selfieUrl: dto.selfieUrl }),
-                ...(dto.username && { username: dto.username }),
-              },
-            }
-          : {}),
       },
-    });
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
     });
     return this.tokens.issue(user);
   }
