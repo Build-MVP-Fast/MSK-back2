@@ -306,31 +306,49 @@ export class AuthService {
             },
           };
 
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        phone: dto.phone,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        fullName,
-        role,
-        primaryRole: role,
-        authProvider: AuthProvider.PASSWORD,
-        emailVerified: true,
-        lastLoginAt: new Date(),
-        ...(Object.keys(metadata).length > 0 && {
-          metadata: metadata as Prisma.InputJsonValue,
-        }),
-        ...profileBlock,
-        credentials: {
-          create: {
-            provider: AuthProvider.PASSWORD,
-            secretHash: await argon2.hash(dto.password),
+    try {
+      const user = await this.prisma.user.create({
+        data: {
+          email: dto.email,
+          phone: dto.phone,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          fullName,
+          role,
+          primaryRole: role,
+          authProvider: AuthProvider.PASSWORD,
+          emailVerified: true,
+          lastLoginAt: new Date(),
+          ...(Object.keys(metadata).length > 0 && {
+            metadata: metadata as Prisma.InputJsonValue,
+          }),
+          ...profileBlock,
+          credentials: {
+            create: {
+              provider: AuthProvider.PASSWORD,
+              secretHash: await argon2.hash(dto.password),
+            },
           },
         },
-      },
-    });
-    return this.tokens.issue(user);
+      });
+      return this.tokens.issue(user);
+    } catch (err) {
+      // Surface the actual Prisma / DB reason so we can see what's
+      // wrong instead of a generic Nest 500. Unique-constraint violations
+      // become a clean 400 the client can render verbatim.
+      const message = err instanceof Error ? err.message : String(err);
+      if (
+        message.includes('Unique constraint') ||
+        message.includes('UNIQUE constraint')
+      ) {
+        throw new BadRequestException('Email or phone already in use.');
+      }
+      // eslint-disable-next-line no-console
+      console.error('[registerStaff] failed', err);
+      throw new BadRequestException(
+        `Could not create account: ${message.slice(0, 240)}`,
+      );
+    }
   }
 
   async loginWithPin(dto: LoginPinDto, _req: Request) {
