@@ -39,9 +39,20 @@ enum UserRole {
   STAFF
   SUPERVISOR
   SUPPLIER
-  HOTELIER
   ADMIN
   SUPER_USER
+}
+
+// Splits user accounts into two lanes that never cross:
+//   PLATFORM = MSK's own internal team using the msk-admin Vercel portal.
+//   APP      = Anyone who signed up via the mobile app (operators, their
+//              staff, guests, suppliers).
+// A `role = ADMIN` account on the APP lane CANNOT log into msk-admin,
+// and a `role = ADMIN` account on the PLATFORM lane CANNOT log into the
+// mobile app. Same UserRole enum, but separated by login endpoint.
+enum AccountKind {
+  PLATFORM
+  APP
 }
 
 enum AuthProvider {
@@ -332,15 +343,16 @@ model User {
   avatarUrl     String?
   role          UserRole
   primaryRole   UserRole?    // when user has multiple roles
+  // Lane this account belongs to — see AccountKind enum docs. Login
+  // endpoints enforce that only one lane can authenticate via them.
+  accountKind   AccountKind  @default(APP)
+  // Hidden accounts are excluded from every user-list endpoint, even
+  // for SUPER_USERs. Used for stealth platform-side test accounts.
+  isHidden      Boolean      @default(false)
   authProvider  AuthProvider @default(PASSWORD)
   emailVerified Boolean      @default(false)
   phoneVerified Boolean      @default(false)
   isActive      Boolean      @default(true)
-  // Hidden test users — present in DB and can sign in normally, but
-  // never appear in any /users listing endpoint, even for SUPER_USER.
-  // Used by the engineering team to keep test accounts invisible to
-  // staff browsing the admin portal.
-  isHidden      Boolean      @default(false)
   locale        String?      @default("en")
   timezone      String?      @default("UTC")
   metadata      Json?

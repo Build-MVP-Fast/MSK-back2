@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
-import { AuthProvider, OtpPurpose, Prisma, UserRole } from '@prisma/client';
+import { AccountKind, AuthProvider, OtpPurpose, Prisma, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { Request } from 'express';
 
@@ -12,7 +12,6 @@ import {
   LoginPinDto,
   RegisterAdminDto,
   RegisterGuestDto,
-  RegisterHotelierDto,
   RegisterStaffDto,
   RegisterWebGuestDto,
   ReservationEnquiryDto,
@@ -42,6 +41,7 @@ export class AuthService {
         fullName: `${dto.firstName} ${dto.lastName}`.trim(),
         role: UserRole.WEB_GUEST,
         primaryRole: UserRole.WEB_GUEST,
+        accountKind: AccountKind.APP,
         authProvider: AuthProvider.PASSWORD,
         credentials: {
           create: {
@@ -94,6 +94,12 @@ export class AuthService {
     });
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
+    // Mobile-only path — a PLATFORM (msk-admin) user using this endpoint
+    // would cross the lane boundary; refuse with the same generic message
+    // so we don't leak which lane the address belongs to.
+    if (user.accountKind !== AccountKind.APP) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
     await this.prisma.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date(), emailVerified: true },
@@ -135,6 +141,11 @@ export class AuthService {
     if (!booking.guestUser.isActive) {
       throw new UnauthorizedException('Invalid code');
     }
+    // Check-in codes are an app-side mechanism — PLATFORM users have no
+    // business signing in this way.
+    if (booking.guestUser.accountKind !== AccountKind.APP) {
+      throw new UnauthorizedException('Invalid code');
+    }
     await this.prisma.user.update({
       where: { id: booking.guestUserId },
       data: { lastLoginAt: new Date() },
@@ -142,12 +153,39 @@ export class AuthService {
     return this.tokens.issue(booking.guestUser);
   }
 
+  /**
+   * msk-admin (PLATFORM lane) email + password login. Used by MSK's
+   * own internal portal at `msk-admin`. Refuses any account whose
+   * accountKind is not PLATFORM, so an app-side operator can never
+   * cross over into the admin portal.
+   */
   async loginWithEmail(dto: LoginEmailDto, _req: Request) {
+    return this.loginWithEmailForKind(dto, AccountKind.PLATFORM);
+  }
+
+  /**
+   * Mobile app email + password login. Mirrors loginWithEmail but
+   * enforces accountKind = APP so platform users can never log into
+   * the mobile app via the same endpoint.
+   */
+  async loginWithEmailApp(dto: LoginEmailDto, _req: Request) {
+    return this.loginWithEmailForKind(dto, AccountKind.APP);
+  }
+
+  private async loginWithEmailForKind(
+    dto: LoginEmailDto,
+    expectedKind: AccountKind,
+  ) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
       include: { credentials: true },
     });
     if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
+    // Same generic message either side so we don't leak which lane an
+    // address lives on.
+    if (user.accountKind !== expectedKind) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     const credential = user.credentials.find((c) => c.provider === AuthProvider.PASSWORD);
     if (!credential) throw new UnauthorizedException('Invalid credentials');
@@ -207,6 +245,7 @@ export class AuthService {
         // shares the WEB_GUEST role (same scope: book + view profile).
         role: UserRole.WEB_GUEST,
         primaryRole: UserRole.WEB_GUEST,
+        accountKind: AccountKind.APP,
         authProvider: AuthProvider.PIN,
         guestProfile: { create: {} },
         credentials: {
@@ -238,6 +277,7 @@ export class AuthService {
         fullName: `${dto.firstName} ${dto.lastName}`.trim(),
         role: UserRole.ADMIN,
         primaryRole: UserRole.ADMIN,
+        accountKind: AccountKind.PLATFORM,
         authProvider: AuthProvider.PIN,
         company: dto.companyId
           ? { connect: { id: dto.companyId } }
@@ -267,74 +307,6 @@ export class AuthService {
     });
 
     return { userId: user.id, otpSent: true };
-  }
-
-  /**
-   * Public self-signup for an external hotelier (the operator who runs a
-   * property — the customer of the MSK platform). Creates a User with
-   * role HOTELIER, a brand-new Company tenant for their hotel, and
-   * password credentials, then issues tokens so the wizard can drop them
-   * straight into the in-app admin dashboard.
-   *
-   * Distinct from registerStaff (which creates employees inside an
-   * existing hotelier's Company) and registerAdmin (MSK platform admin,
-   * separate path entirely).
-   */
-  async registerHotelier(dto: RegisterHotelierDto) {
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (existing) throw new BadRequestException('Email already registered');
-    const fullName = `${dto.firstName} ${dto.lastName}`.trim();
-    const companyName = dto.hotelName?.trim() || `${fullName}'s Hotel`;
-    const companySlug =
-      companyName
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 40) +
-      '-' +
-      Date.now().toString(36);
-    try {
-      const user = await this.prisma.user.create({
-        data: {
-          email: dto.email,
-          phone: dto.phone,
-          firstName: dto.firstName,
-          lastName: dto.lastName,
-          fullName,
-          role: UserRole.HOTELIER,
-          primaryRole: UserRole.HOTELIER,
-          authProvider: AuthProvider.PASSWORD,
-          emailVerified: true,
-          lastLoginAt: new Date(),
-          company: {
-            create: {
-              name: companyName,
-              slug: companySlug,
-            },
-          },
-          credentials: {
-            create: {
-              provider: AuthProvider.PASSWORD,
-              secretHash: await argon2.hash(dto.password),
-            },
-          },
-          ...(dto.selfieUrl && {
-            metadata: { selfieUrl: dto.selfieUrl } as Prisma.InputJsonValue,
-          }),
-        },
-      });
-      return this.tokens.issue(user);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('Unique constraint') || message.includes('UNIQUE constraint')) {
-        throw new BadRequestException('Email already in use.');
-      }
-      // eslint-disable-next-line no-console
-      console.error('[registerHotelier] failed', err);
-      throw new BadRequestException(
-        `Could not create account: ${message.slice(0, 240)}`,
-      );
-    }
   }
 
   /**
@@ -385,6 +357,7 @@ export class AuthService {
           fullName,
           role,
           primaryRole: role,
+          accountKind: AccountKind.APP,
           authProvider: AuthProvider.PASSWORD,
           emailVerified: true,
           lastLoginAt: new Date(),

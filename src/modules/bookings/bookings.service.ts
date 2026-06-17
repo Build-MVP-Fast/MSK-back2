@@ -7,6 +7,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import {
+  AccountKind,
   AuthProvider,
   AvailabilityBlockReason,
   BookingSource,
@@ -869,6 +870,8 @@ export class BookingsService {
             fullName,
             role: UserRole.WEB_GUEST,
             primaryRole: UserRole.WEB_GUEST,
+            // Auto-created from the mobile check-in flow → APP lane.
+            accountKind: AccountKind.APP,
             authProvider: AuthProvider.OTP_ONLY,
             emailVerified: true,
             guestProfile: { create: {} },

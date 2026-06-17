@@ -16,7 +16,6 @@ import {
   LoginPinDto,
   RegisterAdminDto,
   RegisterGuestDto,
-  RegisterHotelierDto,
   RegisterStaffDto,
   RegisterWebGuestDto,
   RefreshTokenDto,
@@ -50,6 +49,18 @@ export class AuthController {
   @Post('login/email')
   loginEmail(@Body() dto: LoginEmailDto, @Req() req: Request) {
     return this.auth.loginWithEmail(dto, req);
+  }
+
+  /**
+   * Mobile app email + password login. Separate endpoint from
+   * `/login/email` so msk-admin (PLATFORM lane) and the mobile app
+   * (APP lane) never authenticate each other's accounts.
+   */
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('login/email/app')
+  loginEmailApp(@Body() dto: LoginEmailDto, @Req() req: Request) {
+    return this.auth.loginWithEmailApp(dto, req);
   }
 
   /**
@@ -126,18 +137,6 @@ export class AuthController {
   @Post('register/staff')
   registerStaff(@Body() dto: RegisterStaffDto) {
     return this.auth.registerStaff(dto);
-  }
-
-  /**
-   * Mobile hotelier (operator) onboarding endpoint. Public — creates a
-   * brand-new Company tenant and a HOTELIER user, returns tokens so the
-   * wizard can drop them straight into their hotel's in-app dashboard.
-   * Distinct from /register/staff and /register/admin.
-   */
-  @Public()
-  @Post('register/hotelier')
-  registerHotelier(@Body() dto: RegisterHotelierDto) {
-    return this.auth.registerHotelier(dto);
   }
 
   @Public()
