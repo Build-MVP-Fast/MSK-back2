@@ -69,7 +69,28 @@ export class UsersService {
     return user;
   }
 
-  update(id: string, dto: Prisma.UserUncheckedUpdateInput) {
+  async update(id: string, dto: Prisma.UserUncheckedUpdateInput) {
+    // If the caller passed `metadata`, merge it on top of whatever's
+    // already stored instead of clobbering. Lets supplier screens write
+    // company / bank details without re-sending the whole blob each time.
+    if (
+      dto.metadata &&
+      typeof dto.metadata === 'object' &&
+      !Array.isArray(dto.metadata)
+    ) {
+      const existing = await this.prisma.user.findUnique({
+        where: { id },
+        select: { metadata: true },
+      });
+      const prev =
+        existing?.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata)
+          ? (existing.metadata as Record<string, unknown>)
+          : {};
+      dto = {
+        ...dto,
+        metadata: { ...prev, ...(dto.metadata as Record<string, unknown>) } as Prisma.InputJsonValue,
+      };
+    }
     return this.prisma.user.update({ where: { id }, data: dto });
   }
 

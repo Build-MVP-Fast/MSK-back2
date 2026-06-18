@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -39,5 +39,23 @@ export class NotificationsController {
   @Delete('tokens/:token')
   unregisterToken(@Param('token') token: string) {
     return this.service.unregisterToken(token);
+  }
+
+  @Get('preferences')
+  getPreferences(@CurrentUser('id') userId: string) {
+    return this.service.getPreferences(userId);
+  }
+
+  @Patch('preferences')
+  updatePreferences(
+    @CurrentUser('id') userId: string,
+    @Body() patch: Partial<{
+      taskUpdates: boolean;
+      shiftAlerts: boolean;
+      propertyStatus: boolean;
+      chatMessages: boolean;
+    }>,
+  ) {
+    return this.service.updatePreferences(userId, patch);
   }
 }

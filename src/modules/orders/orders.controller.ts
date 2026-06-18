@@ -34,9 +34,34 @@ export class OrdersController {
     return this.service.create({ ...dto, createdById: userId });
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.SUPPLIER)
   @Post(':id/status')
   setStatus(@Param('id') id: string, @Body() body: { status: OrderStatus }) {
     return this.service.setStatus(id, body.status);
+  }
+
+  // ── Supplier-facing routes ───────────────────────────────────────
+  // Suppliers see only their own orders. Lookup goes via the
+  // current user's SupplierProfile id.
+
+  @Roles(UserRole.SUPPLIER)
+  @Get('supplier/mine')
+  mine(
+    @CurrentUser('id') userId: string,
+    @Query('status') status?: OrderStatus,
+  ) {
+    return this.service.listForSupplierUser(userId, status);
+  }
+
+  // Records dispatch info (carrier, tracking number, optional notes)
+  // into Order.metadata and moves status to IN_TRANSIT. Multipart not
+  // needed — the supplier picks method client-side and only sends text.
+  @Roles(UserRole.SUPPLIER, UserRole.ADMIN, UserRole.SUPER_USER)
+  @Post(':id/dispatch')
+  dispatch(
+    @Param('id') id: string,
+    @Body() body: { method?: string; trackingNumber?: string; carrier?: string; notes?: string },
+  ) {
+    return this.service.dispatch(id, body);
   }
 }

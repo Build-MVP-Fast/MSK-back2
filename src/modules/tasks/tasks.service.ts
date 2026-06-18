@@ -1,7 +1,27 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TaskStatus } from '@prisma/client';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
+
+interface TaskStepMeta {
+  id: string;
+  text: string;
+  photoRequired?: boolean;
+  completedAt?: string | null;
+  completedByUserId?: string | null;
+  proofUrl?: string | null;
+}
+
+interface TaskMetadataShape {
+  steps?: TaskStepMeta[];
+  proofUrls?: string[];
+  [key: string]: unknown;
+}
+
+function readMetadata(raw: Prisma.JsonValue | null | undefined): TaskMetadataShape {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return raw as TaskMetadataShape;
+}
 
 @Injectable()
 export class TasksService {
@@ -65,6 +85,66 @@ export class TasksService {
   unassign(taskId: string, userId: string) {
     return this.prisma.taskAssignment.delete({
       where: { taskId_userId: { taskId, userId } },
+    });
+  }
+
+  /**
+   * Replace the task's full assignee set in a single transaction:
+   * delete the old assignments, create the new ones. Caller picks who
+   * the task should be on after the call — no merging logic.
+   */
+  async reassign(taskId: string, assigneeIds: string[]) {
+    await this.prisma.$transaction([
+      this.prisma.taskAssignment.deleteMany({ where: { taskId } }),
+      ...assigneeIds.map((userId) =>
+        this.prisma.taskAssignment.create({ data: { taskId, userId } }),
+      ),
+    ]);
+    return this.detail(taskId);
+  }
+
+  /** Toggle a single step in the task's metadata.steps JSON array.
+   *  Caller must currently be an assignee on the task. */
+  async setStepCompleted(
+    taskId: string,
+    stepId: string,
+    userId: string,
+    completed: boolean,
+    proofUrl?: string,
+  ) {
+    const task = await this.prisma.taskItem.findUnique({
+      where: { id: taskId },
+      include: { assignees: true },
+    });
+    if (!task) throw new NotFoundException('Task not found');
+    const isAssignee = task.assignees.some((a) => a.userId === userId);
+    if (!isAssignee) {
+      throw new ForbiddenException('Only assignees can mark steps complete');
+    }
+    const meta = readMetadata(task.metadata);
+    const steps = (meta.steps ?? []).map((s) =>
+      s.id === stepId
+        ? {
+            ...s,
+            completedAt: completed ? new Date().toISOString() : null,
+            completedByUserId: completed ? userId : null,
+            proofUrl: proofUrl ?? s.proofUrl ?? null,
+          }
+        : s,
+    );
+    return this.prisma.taskItem.update({
+      where: { id: taskId },
+      data: { metadata: { ...meta, steps } as unknown as Prisma.InputJsonValue },
+    });
+  }
+
+  async setProofUrls(taskId: string, urls: string[]) {
+    const task = await this.prisma.taskItem.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('Task not found');
+    const meta = readMetadata(task.metadata);
+    return this.prisma.taskItem.update({
+      where: { id: taskId },
+      data: { metadata: { ...meta, proofUrls: urls } as unknown as Prisma.InputJsonValue },
     });
   }
 }

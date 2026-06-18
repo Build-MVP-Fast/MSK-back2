@@ -92,4 +92,49 @@ export class NotificationsService {
       data: { isActive: false },
     });
   }
+
+  // ── Preferences ─────────────────────────────────────────────────
+  // Stored on the User.metadata JSON column to avoid a migration. Any
+  // unknown / legacy users start with all toggles ON, matching how the
+  // mobile UI's switches are pre-rendered.
+  private static readonly DEFAULT_PREFS = {
+    taskUpdates: true,
+    shiftAlerts: true,
+    propertyStatus: true,
+    chatMessages: true,
+  };
+
+  async getPreferences(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { metadata: true },
+    });
+    const meta =
+      user?.metadata && typeof user.metadata === 'object' && !Array.isArray(user.metadata)
+        ? (user.metadata as Record<string, unknown>)
+        : {};
+    const prefs = (meta.notificationPreferences as Record<string, boolean> | undefined) ?? {};
+    return { ...NotificationsService.DEFAULT_PREFS, ...prefs };
+  }
+
+  async updatePreferences(
+    userId: string,
+    patch: Partial<typeof NotificationsService.DEFAULT_PREFS>,
+  ) {
+    const current = await this.getPreferences(userId);
+    const next = { ...current, ...patch };
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { metadata: true },
+    });
+    const meta =
+      user?.metadata && typeof user.metadata === 'object' && !Array.isArray(user.metadata)
+        ? (user.metadata as Record<string, unknown>)
+        : {};
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { metadata: { ...meta, notificationPreferences: next } as any },
+    });
+    return next;
+  }
 }

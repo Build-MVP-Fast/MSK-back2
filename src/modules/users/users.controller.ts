@@ -71,7 +71,10 @@ export class UsersController {
    */
   @Patch('me')
   updateMe(@Body() dto: UpdateMeDto, @CurrentUser('id') userId: string) {
-    return this.service.update(userId, dto);
+    // Cast through unknown — the metadata field is `Record<string, unknown>`
+    // on the DTO (for class-validator) but Prisma's InputJsonValue is the
+    // narrower target. The service's merge logic handles either.
+    return this.service.update(userId, dto as unknown as Parameters<typeof this.service.update>[1]);
   }
 
   /**

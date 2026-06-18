@@ -129,8 +129,8 @@ export class RegisterStaffDto {
   selfieUrl?: string;
 
   @IsOptional()
-  @IsIn(['STAFF', 'SUPERVISOR', 'RECEPTIONIST', 'SUPPLIER'])
-  role?: 'STAFF' | 'SUPERVISOR' | 'RECEPTIONIST' | 'SUPPLIER';
+  @IsIn(['STAFF', 'SUPERVISOR', 'RECEPTIONIST', 'SUPPLIER', 'ADMIN'])
+  role?: 'STAFF' | 'SUPERVISOR' | 'RECEPTIONIST' | 'SUPPLIER' | 'ADMIN';
 }
 
 export class LoginPinDto {

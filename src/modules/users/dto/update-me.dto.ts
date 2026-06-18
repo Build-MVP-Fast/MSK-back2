@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 /**
  * Body for the self-service PATCH /users/me endpoint. Restricted to
@@ -33,4 +33,14 @@ export class UpdateMeDto {
   @MinLength(7)
   @MaxLength(32)
   phone?: string;
+
+  /**
+   * Free-form supplementary fields. Supplier company-details and
+   * bank-details screens persist their data here until a dedicated
+   * column lands. Merged on top of any existing User.metadata; not
+   * replaced wholesale.
+   */
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
 }

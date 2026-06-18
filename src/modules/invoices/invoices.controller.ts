@@ -89,4 +89,32 @@ export class InvoicesController {
   create(@Body() dto: any, @CurrentUser('id') userId: string) {
     return this.service.create({ ...dto, issuedById: userId });
   }
+
+  // ── Supplier-facing routes ───────────────────────────────────────
+  // Suppliers see invoices they've issued and can raise new ones
+  // against a delivered order. The new invoice goes into DRAFT until
+  // the admin accounts team finalises it.
+
+  @Roles(UserRole.SUPPLIER)
+  @Get('supplier/mine')
+  myInvoices(@CurrentUser('id') userId: string) {
+    return this.service.listByIssuer(userId);
+  }
+
+  @Roles(UserRole.SUPPLIER)
+  @Post('supplier')
+  createForSupplier(
+    @Body() dto: {
+      recipientName?: string;
+      recipientEmail?: string;
+      recipientAddress?: string;
+      items: { description: string; quantity: number; unitPrice: number }[];
+      currency?: string;
+      notes?: string;
+      orderId?: string;
+    },
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.service.createSupplierInvoice(userId, dto);
+  }
 }

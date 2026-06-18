@@ -120,4 +120,63 @@ export class InvoicesService {
   void(id: string) {
     return this.prisma.invoice.update({ where: { id }, data: { status: InvoiceStatus.VOIDED } });
   }
+
+  /** Invoices the given user issued (used by supplier "my invoices"). */
+  listByIssuer(userId: string) {
+    return this.prisma.invoice.findMany({
+      where: { issuedById: userId },
+      include: { items: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /** Supplier raises an invoice (typically against a delivered Order).
+   *  We stamp it ISSUED right away — the admin accounts team can
+   *  approve / pay / void it from the admin side. The optional
+   *  `orderId` is stored on metadata for cross-reference. */
+  createSupplierInvoice(
+    issuedById: string,
+    input: {
+      recipientName?: string;
+      recipientEmail?: string;
+      recipientAddress?: string;
+      items: { description: string; quantity: number; unitPrice: number }[];
+      currency?: string;
+      notes?: string;
+      orderId?: string;
+    },
+  ) {
+    if (!input.items || input.items.length === 0) {
+      throw new NotFoundException('At least one line item is required.');
+    }
+    const items = input.items.map((i) => ({
+      description: i.description,
+      quantity: i.quantity,
+      unitPrice: i.unitPrice,
+      taxRate: 0,
+      total: i.quantity * i.unitPrice,
+    }));
+    const subtotal = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
+    return this.prisma.invoice.create({
+      data: {
+        number: `INV-${new Date().getFullYear()}-${nanoid(6).toUpperCase()}`,
+        issuedById,
+        recipientName: input.recipientName,
+        recipientEmail: input.recipientEmail,
+        recipientAddress: input.recipientAddress,
+        status: InvoiceStatus.ISSUED,
+        subtotal,
+        taxAmount: 0,
+        total: subtotal,
+        currency: input.currency ?? 'USD',
+        issuedAt: new Date(),
+        notes: input.notes,
+        ...(input.orderId && {
+          metadata: { orderId: input.orderId } as unknown as Prisma.InputJsonValue,
+        }),
+        items: { create: items },
+      },
+      include: { items: true },
+    });
+  }
 }

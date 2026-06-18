@@ -412,6 +412,9 @@ model User {
   partnerInquiries   PartnerInquiry[]
   contactInquiries   ContactInquiry[]
   newsletterSubscriptions NewsletterSubscription[]
+  attendanceEntries    AttendanceEntry[]
+  leaveRequests        LeaveRequest[]      @relation("LeaveRequester")
+  leaveReviews         LeaveRequest[]      @relation("LeaveReviewer")
 
   @@index([role])
   @@index([companyId])
@@ -1891,4 +1894,67 @@ model WaitlistEntry {
   updatedAt     DateTime @updatedAt
 
   @@index([createdAt])
+}
+
+// Staff clock-in / clock-out punches. A row is created on clock-in
+// with clockOutAt=null; clock-out updates the same row. Reports
+// aggregate over a date range using clockInAt.
+enum AttendanceStatus {
+  CLOCKED_IN
+  CLOCKED_OUT
+  AUTO_CLOSED
+}
+
+model AttendanceEntry {
+  id           String           @id @default(uuid())
+  userId       String
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clockInAt    DateTime
+  clockOutAt   DateTime?
+  status       AttendanceStatus @default(CLOCKED_IN)
+  clockOutNote String?          @db.Text
+  clockInLat   Float?
+  clockInLng   Float?
+  clockOutLat  Float?
+  clockOutLng  Float?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([userId, clockInAt])
+  @@index([status])
+}
+
+enum LeaveType {
+  SICK
+  VACATION
+  PERSONAL
+  UNPAID
+  OTHER
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model LeaveRequest {
+  id           String      @id @default(uuid())
+  userId       String
+  user         User        @relation("LeaveRequester", fields: [userId], references: [id], onDelete: Cascade)
+  startDate    DateTime
+  endDate      DateTime
+  type         LeaveType   @default(PERSONAL)
+  reason       String?     @db.Text
+  status       LeaveStatus @default(PENDING)
+  reviewerId   String?
+  reviewer     User?       @relation("LeaveReviewer", fields: [reviewerId], references: [id])
+  reviewedAt   DateTime?
+  reviewerNote String?     @db.Text
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([userId, startDate])
+  @@index([status])
 }

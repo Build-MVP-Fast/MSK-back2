@@ -35,6 +35,9 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { ScheduleModule as StaffScheduleModule } from './modules/schedule/schedule.module';
 import { RequestsModule } from './modules/requests/requests.module';
+import { AttendanceModule } from './modules/attendance/attendance.module';
+import { LeaveModule } from './modules/leave/leave.module';
+import { ReportsModule } from './modules/reports/reports.module';
 
 // Communication
 import { ChatsModule } from './modules/chats/chats.module';
@@ -110,6 +113,9 @@ import { TestingLocationsModule } from './modules/testing-locations/testing-loca
     TasksModule,
     StaffScheduleModule,
     RequestsModule,
+    AttendanceModule,
+    LeaveModule,
+    ReportsModule,
 
     // Communication
     ChatsModule,
