@@ -39,4 +39,18 @@ export class ReportsController {
   supervisorOverview(@CurrentUser('id') userId: string) {
     return this.service.supervisorOverview(userId);
   }
+
+  /**
+   * Chart data for the Property Operator Reports tab. Returns:
+   *  - operations: totalJobs / completed / pending (last 30 days)
+   *  - jobsLast7Days: 7-point series for the completed-tasks line chart
+   *  - performanceByDepartment: 4-point series (one bar per dept) of
+   *    completion rate (% completed within the last 30 days)
+   *  - performanceRate: average completion rate over the last 30 days
+   */
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
+  @Get('admin-charts')
+  adminCharts(@Query('companyId') companyId?: string) {
+    return this.service.adminCharts(companyId);
+  }
 }

@@ -149,4 +149,92 @@ export class ReportsService {
       team: { total: staffCount, onShift: onShiftNow },
     };
   }
+
+  /**
+   * Property Operator Reports tab data. We aggregate over the last
+   * 30 days everywhere except the line chart, which is per-day for
+   * the last 7 days. The `companyId` filter is reserved — once we
+   * model property scoping on tasks we'll restrict here too. For now
+   * it's scoped to the whole company, same as adminOverview.
+   */
+  async adminCharts(_companyId?: string) {
+    const now = new Date();
+    const startOf30 = new Date(now);
+    startOf30.setDate(startOf30.getDate() - 30);
+
+    const [
+      totalJobs,
+      completedJobs,
+      pendingJobs,
+      jobsLast7Days,
+      departments,
+    ] = await Promise.all([
+      this.prisma.taskItem.count({ where: { createdAt: { gte: startOf30 } } }),
+      this.prisma.taskItem.count({
+        where: { status: TaskStatus.DONE, completedAt: { gte: startOf30 } },
+      }),
+      this.prisma.taskItem.count({
+        where: { status: { in: [TaskStatus.TODO, TaskStatus.IN_PROGRESS] } },
+      }),
+      this.dailyCompletedSeries(7),
+      this.prisma.department.findMany({
+        orderBy: { name: 'asc' },
+        take: 6,
+      }),
+    ]);
+
+    const performanceByDepartment = await Promise.all(
+      departments.map(async (d) => {
+        const [total, completed] = await Promise.all([
+          this.prisma.taskItem.count({
+            where: { departmentId: d.id, createdAt: { gte: startOf30 } },
+          }),
+          this.prisma.taskItem.count({
+            where: {
+              departmentId: d.id,
+              status: TaskStatus.DONE,
+              completedAt: { gte: startOf30 },
+            },
+          }),
+        ]);
+        const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
+        return { id: d.id, name: d.name, rate };
+      }),
+    );
+
+    const overallRate = totalJobs > 0 ? Math.round((completedJobs / totalJobs) * 100) : 0;
+
+    return {
+      operations: {
+        totalJobs,
+        completed: completedJobs,
+        pending: pendingJobs,
+      },
+      jobsLast7Days,
+      performanceByDepartment,
+      performanceRate: overallRate,
+    };
+  }
+
+  /** 7-point series: completed task count per day for the last `days`
+   *  days, oldest first. */
+  private async dailyCompletedSeries(days: number) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const out: { day: string; count: number }[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const start = new Date(today);
+      start.setDate(start.getDate() - i);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+      const count = await this.prisma.taskItem.count({
+        where: {
+          status: TaskStatus.DONE,
+          completedAt: { gte: start, lt: end },
+        },
+      });
+      out.push({ day: start.toISOString().slice(0, 10), count });
+    }
+    return out;
+  }
 }
