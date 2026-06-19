@@ -35,6 +35,7 @@ import { InventoryModule } from './modules/inventory/inventory.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { ScheduleModule as StaffScheduleModule } from './modules/schedule/schedule.module';
+import { ShiftsModule } from './modules/shifts/shifts.module';
 import { RequestsModule } from './modules/requests/requests.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { LeaveModule } from './modules/leave/leave.module';
@@ -114,6 +115,7 @@ import { TestingLocationsModule } from './modules/testing-locations/testing-loca
     OrdersModule,
     TasksModule,
     StaffScheduleModule,
+    ShiftsModule,
     RequestsModule,
     AttendanceModule,
     LeaveModule,

@@ -1958,3 +1958,29 @@ model LeaveRequest {
   @@index([userId, startDate])
   @@index([status])
 }
+
+// Shift templates managed by a Property Operator. Mobile shifts tab
+// renders the list and the Add/Edit Shift modals POST/PATCH against
+// these rows. Start/end stored as "HH:mm" strings — wall-clock time
+// is what the manager cares about; the schedule entry that pins a
+// staff member to a specific calendar day owns the absolute timestamps.
+model Shift {
+  id        String   @id @default(uuid())
+  // companyId is optional because the early MVP supports a single
+  // company per Property Operator. When multi-company support lands
+  // we'll backfill and make this required.
+  companyId String?
+  title     String
+  startTime String   // "08:00"
+  endTime   String   // "16:30"
+  // Optional days-of-week the template applies to. Stored as a CSV of
+  // ISO weekdays (1=Mon..7=Sun); empty means "any day". Kept as a
+  // string so we don't need a separate table for what's effectively
+  // a 7-bit flag set.
+  daysOfWeek String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+}
