@@ -24,6 +24,7 @@ import { PropertiesModule } from './modules/properties/properties.module';
 import { RoomsModule } from './modules/rooms/rooms.module';
 import { AmenitiesModule } from './modules/amenities/amenities.module';
 import { PhotosModule } from './modules/photos/photos.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -102,6 +103,7 @@ import { TestingLocationsModule } from './modules/testing-locations/testing-loca
     RoomsModule,
     AmenitiesModule,
     PhotosModule,
+    UploadsModule,
     AvailabilityModule,
     BookingsModule,
     PaymentsModule,
