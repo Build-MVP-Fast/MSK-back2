@@ -1,7 +1,8 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, TaskStatus } from '@prisma/client';
+import { NotificationChannel, Prisma, TaskStatus } from '@prisma/client';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 interface TaskStepMeta {
   id: string;
@@ -25,7 +26,28 @@ function readMetadata(raw: Prisma.JsonValue | null | undefined): TaskMetadataSha
 
 @Injectable()
 export class TasksService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
+
+  private async notifyAssignees(taskId: string, title: string, body: string) {
+    const assigns = await this.prisma.taskAssignment.findMany({
+      where: { taskId },
+      select: { userId: true },
+    });
+    await Promise.allSettled(
+      assigns.map((a) =>
+        this.notifications.send({
+          userId: a.userId,
+          channel: NotificationChannel.PUSH,
+          title,
+          body,
+          data: { taskId, kind: 'task' },
+        }),
+      ),
+    );
+  }
 
   list(filter: { status?: TaskStatus; assigneeId?: string; departmentId?: string; propertyId?: string } = {}) {
     return this.prisma.taskItem.findMany({
@@ -47,9 +69,9 @@ export class TasksService {
     });
   }
 
-  create(dto: Prisma.TaskItemUncheckedCreateInput & { assigneeIds?: string[] }) {
+  async create(dto: Prisma.TaskItemUncheckedCreateInput & { assigneeIds?: string[] }) {
     const { assigneeIds, ...rest } = dto;
-    return this.prisma.taskItem.create({
+    const task = await this.prisma.taskItem.create({
       data: {
         ...rest,
         ...(assigneeIds && {
@@ -58,6 +80,10 @@ export class TasksService {
       },
       include: { assignees: true },
     });
+    if (assigneeIds?.length) {
+      void this.notifyAssignees(task.id, 'New task assigned', task.title);
+    }
+    return task;
   }
 
   update(id: string, dto: Prisma.TaskItemUncheckedUpdateInput) {
@@ -100,7 +126,11 @@ export class TasksService {
         this.prisma.taskAssignment.create({ data: { taskId, userId } }),
       ),
     ]);
-    return this.detail(taskId);
+    const task = await this.detail(taskId);
+    if (assigneeIds.length && task) {
+      void this.notifyAssignees(taskId, 'Task reassigned to you', task.title);
+    }
+    return task;
   }
 
   /** Toggle a single step in the task's metadata.steps JSON array.

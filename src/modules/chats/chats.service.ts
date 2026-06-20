@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ChatMessageType, ChatType, Prisma } from '@prisma/client';
+import { ChatMessageType, ChatType, NotificationChannel, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class ChatsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /** List the chats a user is a member of, grouped by type. */
   async listForUser(userId: string, type?: ChatType) {
@@ -111,6 +115,27 @@ export class ChatsService {
       include: { sender: true },
     });
     await this.prisma.chat.update({ where: { id: dto.chatId }, data: { updatedAt: new Date() } });
+
+    if (dto.senderId) {
+      const others = await this.prisma.chatMember.findMany({
+        where: { chatId: dto.chatId, leftAt: null, userId: { not: dto.senderId } },
+        select: { userId: true },
+      });
+      const senderName = message.sender?.fullName ?? message.sender?.firstName ?? 'New message';
+      const preview = (dto.body ?? (dto.attachmentUrl ? '📎 attachment' : '')).slice(0, 140);
+      void Promise.allSettled(
+        others.map((m) =>
+          this.notifications.send({
+            userId: m.userId,
+            channel: NotificationChannel.PUSH,
+            title: senderName,
+            body: preview,
+            data: { chatId: dto.chatId, kind: 'chat' },
+          }),
+        ),
+      );
+    }
+
     return message;
   }
 
