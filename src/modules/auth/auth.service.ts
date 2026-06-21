@@ -176,10 +176,19 @@ export class AuthService {
     dto: LoginEmailDto,
     expectedKind: AccountKind,
   ) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-      include: { credentials: true },
-    });
+    const identifier = dto.email.trim();
+    const looksLikeEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
+    const user = looksLikeEmail
+      ? await this.prisma.user.findUnique({
+          where: { email: identifier },
+          include: { credentials: true },
+        })
+      : await this.prisma.user.findFirst({
+          // Username is stored on User.metadata.username by the
+          // Property-Operator / Supplier / Staff onboarding wizards.
+          where: { metadata: { path: ['username'], equals: identifier } },
+          include: { credentials: true },
+        });
     if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
     // Same generic message either side so we don't leak which lane an
     // address lives on.

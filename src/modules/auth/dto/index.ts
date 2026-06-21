@@ -28,7 +28,12 @@ export class RegisterWebGuestDto {
 }
 
 export class LoginEmailDto {
-  @IsEmail()
+  /**
+   * Accepts either a real email or the username chosen at signup
+   * (stored on User.metadata.username). The auth service routes the
+   * lookup based on whether the value matches an email pattern.
+   */
+  @IsString()
   email!: string;
 
   // Login validation intentionally only checks shape, not length. Any
