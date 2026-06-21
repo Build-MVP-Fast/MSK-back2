@@ -131,6 +131,25 @@ export class RegisterStaffDto {
   @IsOptional()
   @IsIn(['STAFF', 'SUPERVISOR', 'RECEPTIONIST', 'SUPPLIER', 'ADMIN'])
   role?: 'STAFF' | 'SUPERVISOR' | 'RECEPTIONIST' | 'SUPPLIER' | 'ADMIN';
+
+  /**
+   * Optional business fields used by the Property Operator onboarding
+   * wizard. When `role === ADMIN` and `businessName` is provided we
+   * create a Company row and link the new user to it; subsequent
+   * Property / Department / etc. calls can default companyId from the
+   * JWT instead of failing UUID validation.
+   */
+  @IsOptional()
+  @IsString()
+  businessName?: string;
+
+  @IsOptional()
+  @IsString()
+  businessEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  businessAddress?: string;
 }
 
 export class LoginPinDto {

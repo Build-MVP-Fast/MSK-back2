@@ -104,7 +104,7 @@ export class PropertiesService {
     return property;
   }
 
-  create(dto: CreatePropertyDto) {
+  create(dto: CreatePropertyDto & { companyId: string }) {
     return this.prisma.property.create({
       data: {
         ...dto,

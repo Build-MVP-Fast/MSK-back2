@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
+import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -55,8 +56,14 @@ export class PropertiesController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Post()
-  create(@Body() dto: CreatePropertyDto) {
-    return this.service.create(dto);
+  create(@Body() dto: CreatePropertyDto, @CurrentUser() user: AuthenticatedUser) {
+    const companyId = dto.companyId ?? user.companyId;
+    if (!companyId) {
+      throw new BadRequestException(
+        'companyId is required — your account is not linked to a company yet.',
+      );
+    }
+    return this.service.create({ ...dto, companyId });
   }
 
   @ApiBearerAuth()

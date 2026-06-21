@@ -14,8 +14,11 @@ import {
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class CreatePropertyDto {
+  /** Optional — when omitted the controller defaults this from the
+   *  authenticated user's companyId. */
+  @IsOptional()
   @IsUUID()
-  companyId!: string;
+  companyId?: string;
 
   @IsString()
   @MinLength(2)

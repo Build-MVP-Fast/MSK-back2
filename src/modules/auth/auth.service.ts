@@ -347,6 +347,29 @@ export class AuthService {
             },
           };
 
+    // Property-Operator onboarding: create a Company row and link the
+    // new ADMIN user to it so subsequent Property / Department / etc.
+    // creates can default companyId from the JWT.
+    let companyConnect: Prisma.UserCreateInput['company'] | undefined;
+    if (role === UserRole.ADMIN && dto.businessName?.trim()) {
+      const baseSlug = dto.businessName
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40) || 'company';
+      const slug = `${baseSlug}-${Math.random().toString(36).slice(2, 8)}`;
+      const company = await this.prisma.company.create({
+        data: {
+          name: dto.businessName.trim(),
+          slug,
+          email: dto.businessEmail?.trim() || null,
+          address: dto.businessAddress?.trim() || null,
+        },
+      });
+      companyConnect = { connect: { id: company.id } };
+    }
+
     try {
       const user = await this.prisma.user.create({
         data: {
@@ -361,6 +384,7 @@ export class AuthService {
           authProvider: AuthProvider.PASSWORD,
           emailVerified: true,
           lastLoginAt: new Date(),
+          ...(companyConnect && { company: companyConnect }),
           ...(Object.keys(metadata).length > 0 && {
             metadata: metadata as Prisma.InputJsonValue,
           }),
