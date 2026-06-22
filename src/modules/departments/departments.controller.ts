@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
@@ -31,8 +31,14 @@ export class DepartmentsController {
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Post()
-  create(@Body() dto: any) {
-    return this.service.create(dto);
+  create(@Body() dto: any, @CurrentUser() user: AuthenticatedUser) {
+    const companyId = dto?.companyId ?? user.companyId;
+    if (!companyId) {
+      throw new BadRequestException(
+        'companyId is required — your account is not linked to a company yet.',
+      );
+    }
+    return this.service.create({ ...dto, companyId });
   }
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
