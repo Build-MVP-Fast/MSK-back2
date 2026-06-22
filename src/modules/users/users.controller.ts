@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import { AccountKind, UserRole } from '@prisma/client';
 
 import { AuthenticatedUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
@@ -49,11 +49,22 @@ export class UsersController {
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @RequirePermission('users.create')
   @Post()
-  create(@Body() dto: CreateUserDto, @CurrentUser('role') callerRole: UserRole) {
-    if (dto.role === UserRole.SUPER_USER && callerRole !== UserRole.SUPER_USER) {
+  create(@Body() dto: CreateUserDto, @CurrentUser() caller: AuthenticatedUser) {
+    if (dto.role === UserRole.SUPER_USER && caller.role !== UserRole.SUPER_USER) {
       throw new BadRequestException(
         'Only a SUPER_USER can create another SUPER_USER account.',
       );
+    }
+    // ADMIN flow (Property Operator adds staff from the mobile app)
+    // → stamp the new user with companyId from the caller's JWT and
+    // accountKind=APP so they show up under the operator's tenant. The
+    // msk-admin web flow keeps the existing PLATFORM-lane default.
+    if (caller.role === UserRole.ADMIN) {
+      return this.service.createStaff({
+        ...dto,
+        companyId: caller.companyId,
+        accountKind: AccountKind.APP,
+      });
     }
     return this.service.createStaff(dto);
   }

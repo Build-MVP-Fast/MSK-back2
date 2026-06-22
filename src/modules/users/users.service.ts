@@ -113,7 +113,7 @@ export class UsersService {
    * returns it ONCE in the response so the admin can copy/share it; it's
    * never echoed back when the admin supplied their own password.
    */
-  async createStaff(dto: CreateUserDto): Promise<CreateStaffResult> {
+  async createStaff(dto: CreateUserDto & { companyId?: string; accountKind?: AccountKind }): Promise<CreateStaffResult> {
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
       include: { credentials: true },
@@ -174,10 +174,13 @@ export class UsersService {
           fullName: `${dto.firstName} ${dto.lastName}`.trim(),
           role: dto.role,
           primaryRole: dto.role,
-          // Created via msk-admin → always the PLATFORM lane. App-side
-          // signups go through /auth/register/* and stamp APP themselves.
-          accountKind: AccountKind.PLATFORM,
+          // accountKind = APP when an in-app Property Operator adds a
+          // teammate (mobile flow), PLATFORM when called by msk-admin
+          // web. Caller passes the right one; default PLATFORM keeps
+          // existing msk-admin callers unaffected.
+          accountKind: dto.accountKind ?? AccountKind.PLATFORM,
           authProvider: AuthProvider.PASSWORD,
+          ...(dto.companyId ? { companyId: dto.companyId } : {}),
           credentials: {
             create: {
               provider: AuthProvider.PASSWORD,
