@@ -2,9 +2,11 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } f
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
+import { AuthenticatedUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { companyScope } from '../../common/util/company-scope';
 
 import { DepartmentsService } from './departments.service';
 
@@ -17,8 +19,8 @@ export class DepartmentsController {
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get()
-  list(@Query('companyId') companyId?: string) {
-    return this.service.list(companyId);
+  list(@CurrentUser() user: AuthenticatedUser, @Query('companyId') companyId?: string) {
+    return this.service.list(companyScope(user, companyId));
   }
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)

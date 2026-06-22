@@ -68,12 +68,13 @@ export class PropertiesService {
       });
   }
 
-  async list(query: PaginationDto & { status?: PropertyStatus }) {
+  async list(query: PaginationDto & { status?: PropertyStatus; companyId?: string }) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
-    const where: Prisma.PropertyWhereInput = query.status
-      ? { status: query.status }
-      : {};
+    const where: Prisma.PropertyWhereInput = {
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.companyId ? { companyId: query.companyId } : {}),
+    };
     const [items, total] = await Promise.all([
       this.prisma.property.findMany({
         where,

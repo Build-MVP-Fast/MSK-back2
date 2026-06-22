@@ -22,6 +22,11 @@ export class ReportsService {
   /** Admin home — single-company / multi-property tallies. */
   async adminOverview(companyId?: string) {
     const propertyWhere = companyId ? { companyId } : {};
+    const taskCompanyWhere = companyId ? { property: { companyId } } : {};
+    const userCompanyWhere = companyId ? { companyId } : {};
+    const attendanceCompanyWhere = companyId
+      ? { user: { companyId } }
+      : {};
     const [
       totalRooms,
       roomsReady,
@@ -39,15 +44,19 @@ export class ReportsService {
       this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.CLEANING } }),
       this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.OCCUPIED } }),
       this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.MAINTENANCE } }),
-      this.prisma.taskItem.count({ where: { status: { in: [TaskStatus.TODO, TaskStatus.IN_PROGRESS] } } }),
-      this.prisma.taskItem.count({ where: { status: TaskStatus.DONE } }),
       this.prisma.taskItem.count({
-        where: { status: { not: TaskStatus.DONE }, dueAt: { lt: new Date() } },
+        where: { ...taskCompanyWhere, status: { in: [TaskStatus.TODO, TaskStatus.IN_PROGRESS] } },
+      }),
+      this.prisma.taskItem.count({ where: { ...taskCompanyWhere, status: TaskStatus.DONE } }),
+      this.prisma.taskItem.count({
+        where: { ...taskCompanyWhere, status: { not: TaskStatus.DONE }, dueAt: { lt: new Date() } },
       }),
       this.prisma.user.count({
-        where: { ...(companyId ? { companyId } : {}), deletedAt: null, isHidden: false },
+        where: { ...userCompanyWhere, deletedAt: null, isHidden: false },
       }),
-      this.prisma.attendanceEntry.count({ where: { status: AttendanceStatus.CLOCKED_IN } }),
+      this.prisma.attendanceEntry.count({
+        where: { ...attendanceCompanyWhere, status: AttendanceStatus.CLOCKED_IN },
+      }),
     ]);
 
     return {

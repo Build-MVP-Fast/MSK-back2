@@ -12,10 +12,11 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { TaskStatus, UserRole } from '@prisma/client';
 
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuthenticatedUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { companyScope } from '../../common/util/company-scope';
 
 import { TasksService } from './tasks.service';
 
@@ -28,8 +29,8 @@ export class TasksController {
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get()
-  list(@Query() q: any) {
-    return this.service.list(q);
+  list(@Query() q: any, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.list({ ...q, companyId: companyScope(user, q?.companyId) });
   }
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)

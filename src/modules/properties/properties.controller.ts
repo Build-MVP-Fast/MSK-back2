@@ -7,6 +7,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { companyScope } from '../../common/util/company-scope';
 import {
   AdminPropertyListQueryDto,
   CreatePropertyDto,
@@ -40,8 +41,8 @@ export class PropertiesController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Get()
-  list(@Query() query: AdminPropertyListQueryDto) {
-    return this.service.list(query);
+  list(@Query() query: AdminPropertyListQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.list({ ...query, companyId: companyScope(user) });
   }
 
   @ApiBearerAuth()

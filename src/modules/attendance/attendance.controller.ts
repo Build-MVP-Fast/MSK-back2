@@ -2,10 +2,11 @@ import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/co
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuthenticatedUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { companyScope } from '../../common/util/company-scope';
 
 import { AttendanceService } from './attendance.service';
 
@@ -70,6 +71,7 @@ export class AttendanceController {
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.SUPERVISOR)
   @Get()
   list(
+    @CurrentUser() user: AuthenticatedUser,
     @Query('userId') userId?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -78,6 +80,7 @@ export class AttendanceController {
       userId,
       from: parseDate(from),
       to: parseDate(to),
+      companyId: companyScope(user),
     });
   }
 

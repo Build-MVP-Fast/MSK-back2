@@ -96,10 +96,11 @@ export class AttendanceService {
   }
 
   /** Supervisor / admin view — paged list across users. */
-  list(filter: { userId?: string; from?: Date; to?: Date } = {}) {
+  list(filter: { userId?: string; from?: Date; to?: Date; companyId?: string } = {}) {
     return this.prisma.attendanceEntry.findMany({
       where: {
         ...(filter.userId && { userId: filter.userId }),
+        ...(filter.companyId && { user: { companyId: filter.companyId } }),
         ...(filter.from || filter.to
           ? {
               clockInAt: {

@@ -2,9 +2,11 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } f
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
+import { AuthenticatedUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { companyScope } from '../../common/util/company-scope';
 
 import { CreateRoomDto, UpdateRoomDto } from './dto';
 import { RoomsService } from './rooms.service';
@@ -19,10 +21,11 @@ export class RoomsController {
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get()
   list(
+    @CurrentUser() user: AuthenticatedUser,
     @Query('propertyId') propertyId?: string,
     @Query('roomTypeId') roomTypeId?: string,
   ) {
-    return this.service.list(propertyId, roomTypeId);
+    return this.service.list(propertyId, roomTypeId, companyScope(user));
   }
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)

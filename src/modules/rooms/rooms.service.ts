@@ -7,10 +7,11 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 export class RoomsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(propertyId?: string, roomTypeId?: string) {
+  list(propertyId?: string, roomTypeId?: string, companyId?: string) {
     const where: Prisma.RoomWhereInput = {
       ...(propertyId && { propertyId }),
       ...(roomTypeId && { roomTypeId }),
+      ...(companyId && { property: { companyId } }),
     };
     return this.prisma.room.findMany({
       where: Object.keys(where).length > 0 ? where : undefined,

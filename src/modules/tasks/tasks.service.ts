@@ -49,13 +49,14 @@ export class TasksService {
     );
   }
 
-  list(filter: { status?: TaskStatus; assigneeId?: string; departmentId?: string; propertyId?: string } = {}) {
+  list(filter: { status?: TaskStatus; assigneeId?: string; departmentId?: string; propertyId?: string; companyId?: string } = {}) {
     return this.prisma.taskItem.findMany({
       where: {
         ...(filter.status && { status: filter.status }),
         ...(filter.departmentId && { departmentId: filter.departmentId }),
         ...(filter.propertyId && { propertyId: filter.propertyId }),
         ...(filter.assigneeId && { assignees: { some: { userId: filter.assigneeId } } }),
+        ...(filter.companyId && { property: { companyId: filter.companyId } }),
       },
       include: { assignees: { include: { user: true } } },
       orderBy: [{ priority: 'desc' }, { dueAt: 'asc' }],

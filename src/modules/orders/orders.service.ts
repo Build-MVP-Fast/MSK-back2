@@ -37,9 +37,12 @@ export class OrdersService {
     return profile?.userId ?? null;
   }
 
-  list(filter: { status?: OrderStatus } = {}) {
+  list(filter: { status?: OrderStatus; companyId?: string } = {}) {
     return this.prisma.order.findMany({
-      where: filter.status ? { status: filter.status } : undefined,
+      where: {
+        ...(filter.status && { status: filter.status }),
+        ...(filter.companyId && { createdBy: { companyId: filter.companyId } }),
+      },
       include: { items: { include: { item: true } } },
       orderBy: { createdAt: 'desc' },
     });

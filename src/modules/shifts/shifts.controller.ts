@@ -13,9 +13,11 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
+import { AuthenticatedUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { companyScope } from '../../common/util/company-scope';
 
 import { CreateShiftDto, UpdateShiftDto, isTimeOfDay } from './dto';
 import { ShiftsService } from './shifts.service';
@@ -31,8 +33,13 @@ export class ShiftsController {
   // wizard / supervisor team views can show "Morning Shift" etc. as
   // labels even before the operator finishes onboarding.
   @Get()
-  list(@Query('companyId') companyId?: string) {
-    return this.service.list(companyId);
+  list(@CurrentUser() user: AuthenticatedUser, @Query('companyId') companyId?: string) {
+    // Non-admin users see shifts scoped to their own companyId (or all if
+    // they have none); admins/super-users go through companyScope.
+    if (user.role === UserRole.ADMIN || user.role === UserRole.SUPER_USER) {
+      return this.service.list(companyScope(user, companyId));
+    }
+    return this.service.list(user.companyId);
   }
 
   @Get(':id')
@@ -42,11 +49,11 @@ export class ShiftsController {
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Post()
-  create(@Body() dto: CreateShiftDto) {
+  create(@Body() dto: CreateShiftDto, @CurrentUser() user: AuthenticatedUser) {
     if (!isTimeOfDay(dto.startTime) || !isTimeOfDay(dto.endTime)) {
       throw new BadRequestException('startTime and endTime must be HH:mm');
     }
-    return this.service.create(dto);
+    return this.service.create({ ...dto, companyId: user.companyId ?? undefined });
   }
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)

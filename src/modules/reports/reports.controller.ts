@@ -2,10 +2,11 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuthenticatedUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { companyScope } from '../../common/util/company-scope';
 
 import { ReportsService } from './reports.service';
 
@@ -18,8 +19,8 @@ export class ReportsController {
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Get('admin-overview')
-  adminOverview(@Query('companyId') companyId?: string) {
-    return this.service.adminOverview(companyId);
+  adminOverview(@CurrentUser() user: AuthenticatedUser, @Query('companyId') companyId?: string) {
+    return this.service.adminOverview(companyScope(user, companyId));
   }
 
   @Roles(UserRole.SUPER_USER)
@@ -50,7 +51,7 @@ export class ReportsController {
    */
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Get('admin-charts')
-  adminCharts(@Query('companyId') companyId?: string) {
-    return this.service.adminCharts(companyId);
+  adminCharts(@CurrentUser() user: AuthenticatedUser, @Query('companyId') companyId?: string) {
+    return this.service.adminCharts(companyScope(user, companyId));
   }
 }

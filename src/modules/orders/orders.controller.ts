@@ -2,10 +2,11 @@ import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/co
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { OrderStatus, UserRole } from '@prisma/client';
 
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuthenticatedUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { companyScope } from '../../common/util/company-scope';
 
 import { OrdersService } from './orders.service';
 
@@ -18,8 +19,8 @@ export class OrdersController {
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Get()
-  list(@Query() q: { status?: OrderStatus }) {
-    return this.service.list(q);
+  list(@Query() q: { status?: OrderStatus; companyId?: string }, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.list({ ...q, companyId: companyScope(user, q?.companyId) });
   }
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
