@@ -242,7 +242,7 @@ export class UsersService {
    */
   async uploadGuestDocument(
     userId: string,
-    kind: 'ID' | 'SIGNATURE' | 'SELFIE',
+    kind: 'ID' | 'SIGNATURE' | 'SELFIE' | 'COMPANY_LOGO',
     file: Express.Multer.File,
   ) {
     const folder =
@@ -250,7 +250,9 @@ export class UsersService {
         ? 'guest-signatures'
         : kind === 'SELFIE'
           ? 'guest-selfies'
-          : 'guest-id-documents';
+          : kind === 'COMPANY_LOGO'
+            ? 'company-logos'
+            : 'guest-id-documents';
     const stored = await this.storage.upload(
       file.buffer,
       file.mimetype || 'application/octet-stream',
@@ -269,7 +271,9 @@ export class UsersService {
         ? 'signatureUrl'
         : kind === 'SELFIE'
           ? 'selfieUrl'
-          : 'idDocumentUrl';
+          : kind === 'COMPANY_LOGO'
+            ? 'companyLogoUrl'
+            : 'idDocumentUrl';
     const next: Record<string, unknown> = {
       ...prev,
       [metadataKey]: stored.url,

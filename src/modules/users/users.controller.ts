@@ -105,8 +105,15 @@ export class UsersController {
     @CurrentUser('id') userId: string,
   ) {
     if (!file) throw new BadRequestException('File is required');
-    if (kind !== 'ID' && kind !== 'SIGNATURE' && kind !== 'SELFIE') {
-      throw new BadRequestException('kind must be "ID", "SIGNATURE", or "SELFIE"');
+    if (
+      kind !== 'ID' &&
+      kind !== 'SIGNATURE' &&
+      kind !== 'SELFIE' &&
+      kind !== 'COMPANY_LOGO'
+    ) {
+      throw new BadRequestException(
+        'kind must be "ID", "SIGNATURE", "SELFIE", or "COMPANY_LOGO"',
+      );
     }
     return this.service.uploadGuestDocument(userId, kind, file);
   }
