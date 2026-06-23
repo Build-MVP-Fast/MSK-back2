@@ -56,6 +56,11 @@ export class TokenService {
       permissionCodes = [...set].sort();
     }
 
+    // Include metadata + firstName/lastName so the mobile auth store
+    // has everything the dashboard avatars, profile screens, and
+    // company-logo widgets need on first paint after sign-in. Without
+    // metadata here, the client would have to round-trip /users/me on
+    // every login just to render the avatar circle.
     return {
       accessToken,
       refreshToken: refreshTokenRaw,
@@ -65,10 +70,13 @@ export class TokenService {
         id: user.id,
         email: user.email,
         phone: user.phone,
+        firstName: user.firstName,
+        lastName: user.lastName,
         fullName: user.fullName,
         role: user.role,
         primaryRole: user.primaryRole,
         companyId: user.companyId,
+        metadata: user.metadata ?? null,
       },
       permissions: permissionCodes,
     };
