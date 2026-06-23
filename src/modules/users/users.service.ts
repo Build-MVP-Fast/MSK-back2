@@ -91,6 +91,22 @@ export class UsersService {
         metadata: { ...prev, ...(dto.metadata as Record<string, unknown>) } as Prisma.InputJsonValue,
       };
     }
+    // If first/last name changed but the caller didn't send fullName,
+    // recompute so the displayed name across the app picks up the
+    // change next time it's read. Without this the row keeps the old
+    // fullName cached and every profile screen looks stale.
+    const fn = dto.firstName;
+    const ln = dto.lastName;
+    if ((fn !== undefined || ln !== undefined) && dto.fullName === undefined) {
+      const existing = await this.prisma.user.findUnique({
+        where: { id },
+        select: { firstName: true, lastName: true },
+      });
+      const finalFirst = typeof fn === 'string' ? fn : (existing?.firstName ?? '');
+      const finalLast = typeof ln === 'string' ? ln : (existing?.lastName ?? '');
+      const composed = `${finalFirst} ${finalLast}`.trim();
+      if (composed) dto = { ...dto, fullName: composed };
+    }
     return this.prisma.user.update({ where: { id }, data: dto });
   }
 
