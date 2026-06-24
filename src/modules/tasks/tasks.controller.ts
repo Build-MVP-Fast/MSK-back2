@@ -27,13 +27,34 @@ import { TasksService } from './tasks.service';
 export class TasksController {
   constructor(private readonly service: TasksService) {}
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
+  // STAFF can call this too, but only to read their own tasks — the
+  // filter is forced to assigneeId = themselves regardless of what
+  // they pass. Company scoping is enforced for everyone via
+  // companyScope; SUPER_USER may pass cross-tenant companyId.
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.SUPER_USER,
+    UserRole.RECEPTIONIST,
+    UserRole.STAFF,
+    UserRole.SUPERVISOR,
+  )
   @Get()
   list(@Query() q: any, @CurrentUser() user: AuthenticatedUser) {
-    return this.service.list({ ...q, companyId: companyScope(user, q?.companyId) });
+    const isStaffOnly = user.role === UserRole.STAFF;
+    return this.service.list({
+      ...q,
+      ...(isStaffOnly ? { assigneeId: user.id } : {}),
+      companyId: companyScope(user, q?.companyId),
+    });
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.SUPER_USER,
+    UserRole.RECEPTIONIST,
+    UserRole.STAFF,
+    UserRole.SUPERVISOR,
+  )
   @Get(':id')
   detail(@Param('id') id: string) {
     return this.service.detail(id);
@@ -51,7 +72,13 @@ export class TasksController {
     return this.service.update(id, dto);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.SUPER_USER,
+    UserRole.RECEPTIONIST,
+    UserRole.STAFF,
+    UserRole.SUPERVISOR,
+  )
   @Post(':id/status')
   setStatus(@Param('id') id: string, @Body() body: { status: TaskStatus }) {
     return this.service.setStatus(id, body.status);
