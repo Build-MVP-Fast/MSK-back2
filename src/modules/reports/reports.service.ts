@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import {
   AttendanceStatus,
   BookingStatus,
+  LeaveStatus,
   RoomStatus,
   TaskStatus,
   UserRole,
@@ -27,35 +28,81 @@ export class ReportsService {
     const attendanceCompanyWhere = companyId
       ? { user: { companyId } }
       : {};
+    const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfToday = new Date(startOfToday);
+    endOfToday.setDate(endOfToday.getDate() + 1);
     const [
       totalRooms,
       roomsReady,
       roomsInProgress,
       roomsOccupied,
       roomsVacant,
+      roomsOutOfService,
       activeTasks,
       completedTasks,
       overdueTasks,
+      pendingReviewTasks,
+      assignedTodayTasks,
+      unassignedTasks,
       totalStaff,
       onShiftNow,
+      absentToday,
+      staffByDept,
     ] = await Promise.all([
       this.prisma.room.count({ where: { property: propertyWhere } }),
       this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.AVAILABLE } }),
       this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.CLEANING } }),
       this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.OCCUPIED } }),
       this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.MAINTENANCE } }),
+      this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.OUT_OF_SERVICE } }),
       this.prisma.taskItem.count({
         where: { ...taskCompanyWhere, status: { in: [TaskStatus.TODO, TaskStatus.IN_PROGRESS] } },
       }),
       this.prisma.taskItem.count({ where: { ...taskCompanyWhere, status: TaskStatus.DONE } }),
       this.prisma.taskItem.count({
-        where: { ...taskCompanyWhere, status: { not: TaskStatus.DONE }, dueAt: { lt: new Date() } },
+        where: { ...taskCompanyWhere, status: { not: TaskStatus.DONE }, dueAt: { lt: now } },
+      }),
+      this.prisma.taskItem.count({
+        where: { ...taskCompanyWhere, status: TaskStatus.BLOCKED },
+      }),
+      this.prisma.taskItem.count({
+        where: {
+          ...taskCompanyWhere,
+          createdAt: { gte: startOfToday, lt: endOfToday },
+          assignees: { some: {} },
+        },
+      }),
+      this.prisma.taskItem.count({
+        where: {
+          ...taskCompanyWhere,
+          status: { notIn: [TaskStatus.DONE, TaskStatus.CANCELLED] },
+          assignees: { none: {} },
+        },
       }),
       this.prisma.user.count({
         where: { ...userCompanyWhere, deletedAt: null, isHidden: false },
       }),
       this.prisma.attendanceEntry.count({
         where: { ...attendanceCompanyWhere, status: AttendanceStatus.CLOCKED_IN },
+      }),
+      this.prisma.leaveRequest.count({
+        where: {
+          status: LeaveStatus.APPROVED,
+          startDate: { lt: endOfToday },
+          endDate: { gte: startOfToday },
+          ...(companyId ? { user: { companyId } } : {}),
+        },
+      }),
+      this.prisma.department.findMany({
+        where: companyId ? { companyId } : {},
+        select: {
+          id: true,
+          name: true,
+          _count: { select: { members: true } },
+        },
+        orderBy: { name: 'asc' },
       }),
     ]);
 
@@ -66,15 +113,21 @@ export class ReportsService {
         inProgress: roomsInProgress,
         occupied: roomsOccupied,
         vacant: roomsVacant,
+        outOfService: roomsOutOfService,
       },
       tasks: {
         active: activeTasks,
         completed: completedTasks,
         overdue: overdueTasks,
+        pendingReview: pendingReviewTasks,
+        assignedToday: assignedTodayTasks,
+        unassigned: unassignedTasks,
       },
       department: {
         totalStaff,
         onShift: onShiftNow,
+        absent: absentToday,
+        byDepartment: staffByDept.map((d) => ({ id: d.id, name: d.name, total: d._count.members })),
       },
     };
   }
