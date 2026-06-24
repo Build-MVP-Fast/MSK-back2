@@ -131,11 +131,18 @@ export class UsersController {
     return this.service.update(id, dto);
   }
 
-  @Roles(UserRole.SUPER_USER)
+  // Both SUPER_USER (platform-wide) and ADMIN (Property Operator, own
+  // tenant only) may deactivate a staff user. The permission check
+  // stays so PERMISSIONS.users.delete is still required, but ADMIN is
+  // granted it via the default role policy. Company scoping is enforced
+  // in the service.
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @RequirePermission('users.delete')
   @Delete(':id')
-  deactivate(@Param('id') id: string) {
-    return this.service.deactivate(id);
+  deactivate(@Param('id') id: string, @CurrentUser() caller: AuthenticatedUser) {
+    const scopeCompanyId =
+      caller.role === UserRole.ADMIN ? caller.companyId ?? undefined : undefined;
+    return this.service.deactivate(id, scopeCompanyId);
   }
 
   @Post(':guestProfileId/additional-guests')

@@ -152,11 +152,13 @@ const RECEPTIONIST_PERMISSIONS = new Set([
 ]);
 
 // ADMIN gets everything except these (super-user-only by default).
+// users.delete IS granted to ADMIN: a Property Operator must be able
+// to deactivate staff in their own company. Cross-company protection
+// is enforced server-side in UsersService.deactivate.
 const ADMIN_EXCLUDED = new Set<string>([
   'properties.delete',
   'rooms.delete',
   'room-types.delete',
-  'users.delete',
   'users.edit-permissions',
 ]);
 

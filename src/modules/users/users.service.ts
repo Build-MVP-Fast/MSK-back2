@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -110,10 +111,17 @@ export class UsersService {
     return this.prisma.user.update({ where: { id }, data: dto });
   }
 
-  /** Soft-delete (sets deletedAt + isActive=false). */
-  async deactivate(id: string) {
+  /** Soft-delete (sets deletedAt + isActive=false).
+   *  When `callerCompanyId` is provided we ensure the target user is in
+   *  the same company — used to scope an ADMIN's deactivate action to
+   *  their own tenant (a Property Operator must not be able to soft-
+   *  delete users belonging to another company). */
+  async deactivate(id: string, callerCompanyId?: string) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
+    if (callerCompanyId && user.companyId !== callerCompanyId) {
+      throw new ForbiddenException("You can't deactivate a user from another company.");
+    }
     return this.prisma.user.update({
       where: { id },
       data: { isActive: false, deletedAt: new Date() },
