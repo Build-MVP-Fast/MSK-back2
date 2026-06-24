@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsLatitude,
   IsLongitude,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -92,6 +93,10 @@ export class CreatePropertyDto {
   @IsOptional()
   @IsString()
   checkOutTime?: string;
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
 }
 
 export class UpdatePropertyDto {
@@ -134,6 +139,10 @@ export class UpdatePropertyDto {
   @IsOptional()
   @IsString()
   checkOutTime?: string;
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
 }
 
 export class PropertyFilterDto {

@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, PropertyStatus } from '@prisma/client';
+type JsonInput = Prisma.InputJsonValue;
 
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { PaginationDto } from '../../common/dto/pagination.dto';
@@ -106,16 +107,25 @@ export class PropertiesService {
   }
 
   create(dto: CreatePropertyDto & { companyId: string }) {
+    const { metadata, ...rest } = dto;
     return this.prisma.property.create({
       data: {
-        ...dto,
-        slug: dto.slug ?? slugify(dto.name),
+        ...rest,
+        slug: rest.slug ?? slugify(rest.name),
+        ...(metadata !== undefined ? { metadata: metadata as JsonInput } : {}),
       },
     });
   }
 
   update(id: string, dto: UpdatePropertyDto) {
-    return this.prisma.property.update({ where: { id }, data: dto });
+    const { metadata, ...rest } = dto;
+    return this.prisma.property.update({
+      where: { id },
+      data: {
+        ...rest,
+        ...(metadata !== undefined ? { metadata: metadata as JsonInput } : {}),
+      },
+    });
   }
 
   publish(id: string) {
