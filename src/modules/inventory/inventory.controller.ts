@@ -31,8 +31,12 @@ export class InventoryController {
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Post('items')
-  createItem(@Body() dto: any) {
-    return this.service.createItem(dto);
+  createItem(@Body() dto: any, @CurrentUser() user: AuthenticatedUser) {
+    // Stamp companyId from the caller so an ADMIN's items are
+    // scoped to their tenant. SUPER_USER may pass companyId in the body.
+    const callerCompanyId =
+      user.role === UserRole.ADMIN ? user.companyId ?? undefined : dto.companyId;
+    return this.service.createItem(dto, callerCompanyId);
   }
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
