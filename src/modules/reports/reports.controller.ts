@@ -51,7 +51,11 @@ export class ReportsController {
    */
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Get('admin-charts')
-  adminCharts(@CurrentUser() user: AuthenticatedUser, @Query('companyId') companyId?: string) {
-    return this.service.adminCharts(companyScope(user, companyId));
+  adminCharts(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('companyId') companyId?: string,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    return this.service.adminCharts(companyScope(user, companyId), departmentId);
   }
 }

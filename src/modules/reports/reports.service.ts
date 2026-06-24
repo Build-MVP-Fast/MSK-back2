@@ -237,10 +237,20 @@ export class ReportsService {
    * model property scoping on tasks we'll restrict here too. For now
    * it's scoped to the whole company, same as adminOverview.
    */
-  async adminCharts(_companyId?: string) {
+  async adminCharts(companyId?: string, departmentId?: string) {
     const now = new Date();
     const startOf30 = new Date(now);
     startOf30.setDate(startOf30.getDate() - 30);
+
+    // Company scope: tasks via task.property.companyId; departments
+    // directly. Department filter narrows tasks further.
+    const taskScope = companyId ? { property: { companyId } } : {};
+    const deptScope = companyId ? { companyId } : {};
+    const taskWithDept = (extra: object) => ({
+      ...taskScope,
+      ...(departmentId ? { departmentId } : {}),
+      ...extra,
+    });
 
     const [
       totalJobs,
@@ -249,15 +259,16 @@ export class ReportsService {
       jobsLast7Days,
       departments,
     ] = await Promise.all([
-      this.prisma.taskItem.count({ where: { createdAt: { gte: startOf30 } } }),
+      this.prisma.taskItem.count({ where: taskWithDept({ createdAt: { gte: startOf30 } }) }),
       this.prisma.taskItem.count({
-        where: { status: TaskStatus.DONE, completedAt: { gte: startOf30 } },
+        where: taskWithDept({ status: TaskStatus.DONE, completedAt: { gte: startOf30 } }),
       }),
       this.prisma.taskItem.count({
-        where: { status: { in: [TaskStatus.TODO, TaskStatus.IN_PROGRESS] } },
+        where: taskWithDept({ status: { in: [TaskStatus.TODO, TaskStatus.IN_PROGRESS] } }),
       }),
-      this.dailyCompletedSeries(7),
+      this.dailyCompletedSeries(7, companyId, departmentId),
       this.prisma.department.findMany({
+        where: deptScope,
         orderBy: { name: 'asc' },
         take: 6,
       }),
@@ -267,10 +278,11 @@ export class ReportsService {
       departments.map(async (d) => {
         const [total, completed] = await Promise.all([
           this.prisma.taskItem.count({
-            where: { departmentId: d.id, createdAt: { gte: startOf30 } },
+            where: { ...taskScope, departmentId: d.id, createdAt: { gte: startOf30 } },
           }),
           this.prisma.taskItem.count({
             where: {
+              ...taskScope,
               departmentId: d.id,
               status: TaskStatus.DONE,
               completedAt: { gte: startOf30 },
@@ -297,11 +309,15 @@ export class ReportsService {
   }
 
   /** 7-point series: completed task count per day for the last `days`
-   *  days, oldest first. */
-  private async dailyCompletedSeries(days: number) {
+   *  days, oldest first. Scoped to companyId + optional departmentId. */
+  private async dailyCompletedSeries(days: number, companyId?: string, departmentId?: string) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const out: { day: string; count: number }[] = [];
+    const baseScope = {
+      ...(companyId ? { property: { companyId } } : {}),
+      ...(departmentId ? { departmentId } : {}),
+    };
     for (let i = days - 1; i >= 0; i--) {
       const start = new Date(today);
       start.setDate(start.getDate() - i);
@@ -309,6 +325,7 @@ export class ReportsService {
       end.setDate(end.getDate() + 1);
       const count = await this.prisma.taskItem.count({
         where: {
+          ...baseScope,
           status: TaskStatus.DONE,
           completedAt: { gte: start, lt: end },
         },
