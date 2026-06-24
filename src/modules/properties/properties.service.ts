@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, PropertyStatus } from '@prisma/client';
 type JsonInput = Prisma.InputJsonValue;
 
@@ -142,7 +142,17 @@ export class PropertiesService {
     });
   }
 
-  remove(id: string) {
+  async remove(id: string, callerCompanyId?: string) {
+    if (callerCompanyId) {
+      const existing = await this.prisma.property.findUnique({
+        where: { id },
+        select: { companyId: true },
+      });
+      if (!existing) throw new NotFoundException('Property not found');
+      if (existing.companyId !== callerCompanyId) {
+        throw new ForbiddenException("You can't delete a property from another company.");
+      }
+    }
     return this.prisma.property.delete({ where: { id } });
   }
 }

@@ -91,11 +91,16 @@ export class PropertiesController {
     return this.service.archive(id);
   }
 
+  // Property Operator (ADMIN) can delete a property in their own
+  // tenant; SUPER_USER may delete anywhere. Cross-company protection
+  // is enforced in the service.
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.SUPER_USER)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() caller: AuthenticatedUser) {
+    const scopeCompanyId =
+      caller.role === UserRole.ADMIN ? caller.companyId ?? undefined : undefined;
+    return this.service.remove(id, scopeCompanyId);
   }
 }
