@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   AttendanceStatus,
   BookingStatus,
@@ -18,21 +18,38 @@ import { PrismaService } from '../../common/prisma/prisma.service';
  */
 @Injectable()
 export class ReportsService {
+  private readonly logger = new Logger(ReportsService.name);
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Admin home — single-company / multi-property tallies. */
+  /** Admin home — single-company / multi-property tallies.
+   *  Every sub-query is wrapped in safeCount/safeRows so a single
+   *  broken Prisma call (stale client, missing column on a freshly
+   *  reset env, etc.) can never 500 the whole endpoint. The card it
+   *  fed just renders 0 / empty in that case. */
   async adminOverview(companyId?: string) {
     const propertyWhere = companyId ? { companyId } : {};
     const taskCompanyWhere = companyId ? { property: { companyId } } : {};
     const userCompanyWhere = companyId ? { companyId } : {};
-    const attendanceCompanyWhere = companyId
-      ? { user: { companyId } }
-      : {};
+    const attendanceCompanyWhere = companyId ? { user: { companyId } } : {};
     const now = new Date();
     const startOfToday = new Date(now);
     startOfToday.setHours(0, 0, 0, 0);
     const endOfToday = new Date(startOfToday);
     endOfToday.setDate(endOfToday.getDate() + 1);
+
+    const safeCount = async (label: string, run: () => Promise<number>) => {
+      try { return await run(); } catch (e) {
+        this.logger.warn(`[adminOverview] ${label} failed: ${e instanceof Error ? e.message : e}`);
+        return 0;
+      }
+    };
+    const safeRows = async <T>(label: string, run: () => Promise<T[]>): Promise<T[]> => {
+      try { return await run(); } catch (e) {
+        this.logger.warn(`[adminOverview] ${label} failed: ${e instanceof Error ? e.message : e}`);
+        return [];
+      }
+    };
+
     const [
       totalRooms,
       roomsReady,
@@ -51,51 +68,51 @@ export class ReportsService {
       absentToday,
       staffByDept,
     ] = await Promise.all([
-      this.prisma.room.count({ where: { property: propertyWhere } }),
-      this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.AVAILABLE } }),
-      this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.CLEANING } }),
-      this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.OCCUPIED } }),
-      this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.MAINTENANCE } }),
-      this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.OUT_OF_SERVICE } }),
-      this.prisma.taskItem.count({
+      safeCount('totalRooms', () => this.prisma.room.count({ where: { property: propertyWhere } })),
+      safeCount('roomsReady', () => this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.AVAILABLE } })),
+      safeCount('roomsInProgress', () => this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.CLEANING } })),
+      safeCount('roomsOccupied', () => this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.OCCUPIED } })),
+      safeCount('roomsVacant', () => this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.MAINTENANCE } })),
+      safeCount('roomsOutOfService', () => this.prisma.room.count({ where: { property: propertyWhere, status: RoomStatus.OUT_OF_SERVICE } })),
+      safeCount('activeTasks', () => this.prisma.taskItem.count({
         where: { ...taskCompanyWhere, status: { in: [TaskStatus.TODO, TaskStatus.IN_PROGRESS] } },
-      }),
-      this.prisma.taskItem.count({ where: { ...taskCompanyWhere, status: TaskStatus.DONE } }),
-      this.prisma.taskItem.count({
+      })),
+      safeCount('completedTasks', () => this.prisma.taskItem.count({ where: { ...taskCompanyWhere, status: TaskStatus.DONE } })),
+      safeCount('overdueTasks', () => this.prisma.taskItem.count({
         where: { ...taskCompanyWhere, status: { not: TaskStatus.DONE }, dueAt: { lt: now } },
-      }),
-      this.prisma.taskItem.count({
+      })),
+      safeCount('pendingReviewTasks', () => this.prisma.taskItem.count({
         where: { ...taskCompanyWhere, status: TaskStatus.BLOCKED },
-      }),
-      this.prisma.taskItem.count({
+      })),
+      safeCount('assignedTodayTasks', () => this.prisma.taskItem.count({
         where: {
           ...taskCompanyWhere,
           createdAt: { gte: startOfToday, lt: endOfToday },
           assignees: { some: {} },
         },
-      }),
-      this.prisma.taskItem.count({
+      })),
+      safeCount('unassignedTasks', () => this.prisma.taskItem.count({
         where: {
           ...taskCompanyWhere,
           status: { notIn: [TaskStatus.DONE, TaskStatus.CANCELLED] },
           assignees: { none: {} },
         },
-      }),
-      this.prisma.user.count({
+      })),
+      safeCount('totalStaff', () => this.prisma.user.count({
         where: { ...userCompanyWhere, deletedAt: null, isHidden: false },
-      }),
-      this.prisma.attendanceEntry.count({
+      })),
+      safeCount('onShiftNow', () => this.prisma.attendanceEntry.count({
         where: { ...attendanceCompanyWhere, status: AttendanceStatus.CLOCKED_IN },
-      }),
-      this.prisma.leaveRequest.count({
+      })),
+      safeCount('absentToday', () => this.prisma.leaveRequest.count({
         where: {
           status: LeaveStatus.APPROVED,
           startDate: { lt: endOfToday },
           endDate: { gte: startOfToday },
           ...(companyId ? { user: { companyId } } : {}),
         },
-      }),
-      this.prisma.department.findMany({
+      })),
+      safeRows('staffByDept', () => this.prisma.department.findMany({
         where: companyId ? { companyId } : {},
         select: {
           id: true,
@@ -103,7 +120,7 @@ export class ReportsService {
           _count: { select: { members: true } },
         },
         orderBy: { name: 'asc' },
-      }),
+      })),
     ]);
 
     return {
@@ -127,7 +144,8 @@ export class ReportsService {
         totalStaff,
         onShift: onShiftNow,
         absent: absentToday,
-        byDepartment: staffByDept.map((d) => ({ id: d.id, name: d.name, total: d._count.members })),
+        byDepartment: (staffByDept as Array<{ id: string; name: string; _count: { members: number } }>)
+          .map((d) => ({ id: d.id, name: d.name, total: d._count.members })),
       },
     };
   }
