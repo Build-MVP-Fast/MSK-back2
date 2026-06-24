@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, RoomStatus } from '@prisma/client';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
 
@@ -7,11 +7,17 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 export class RoomsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(propertyId?: string, roomTypeId?: string, companyId?: string) {
+  list(
+    propertyId?: string,
+    roomTypeId?: string,
+    companyId?: string,
+    status?: RoomStatus,
+  ) {
     const where: Prisma.RoomWhereInput = {
       ...(propertyId && { propertyId }),
       ...(roomTypeId && { roomTypeId }),
       ...(companyId && { property: { companyId } }),
+      ...(status && { status }),
     };
     return this.prisma.room.findMany({
       where: Object.keys(where).length > 0 ? where : undefined,

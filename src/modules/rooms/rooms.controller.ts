@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import { RoomStatus, UserRole } from '@prisma/client';
 
 import { AuthenticatedUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -24,8 +24,9 @@ export class RoomsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('propertyId') propertyId?: string,
     @Query('roomTypeId') roomTypeId?: string,
+    @Query('status') status?: RoomStatus,
   ) {
-    return this.service.list(propertyId, roomTypeId, companyScope(user));
+    return this.service.list(propertyId, roomTypeId, companyScope(user), status);
   }
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
