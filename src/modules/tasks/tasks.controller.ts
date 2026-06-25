@@ -27,10 +27,6 @@ import { TasksService } from './tasks.service';
 export class TasksController {
   constructor(private readonly service: TasksService) {}
 
-  // STAFF can call this too, but only to read their own tasks — the
-  // filter is forced to assigneeId = themselves regardless of what
-  // they pass. Company scoping is enforced for everyone via
-  // companyScope; SUPER_USER may pass cross-tenant companyId.
   @Roles(
     UserRole.ADMIN,
     UserRole.SUPER_USER,
@@ -40,10 +36,17 @@ export class TasksController {
   )
   @Get()
   list(@Query() q: any, @CurrentUser() user: AuthenticatedUser) {
-    const isStaffOnly = user.role === UserRole.STAFF;
+    // STAFF: force assigneeId = themselves and SKIP companyId filtering.
+    // The assignee join (task.assignees.some.userId = caller.id) is
+    // already a tight scope — and the companyId-via-property join was
+    // silently dropping tasks for staff whose task.property.companyId
+    // didn't match their own (which happens on legacy data where
+    // properties or staff predate full company stamping).
+    if (user.role === UserRole.STAFF) {
+      return this.service.list({ assigneeId: user.id });
+    }
     return this.service.list({
       ...q,
-      ...(isStaffOnly ? { assigneeId: user.id } : {}),
       companyId: companyScope(user, q?.companyId),
     });
   }
