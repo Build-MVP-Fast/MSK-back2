@@ -28,7 +28,26 @@ export class ReportsService {
    *  fed just renders 0 / empty in that case. */
   async adminOverview(companyId?: string) {
     const propertyWhere = companyId ? { companyId } : {};
-    const taskCompanyWhere = companyId ? { property: { companyId } } : {};
+    // TaskItem has no Prisma `property` relation (only the scalar
+    // propertyId column), so we can't use `property: { companyId }`
+    // — Prisma throws "Unknown arg `property`" and every task count
+    // silently zeroes via safeCount. Resolve company → property ids
+    // up front and turn it into a propertyId IN […] filter instead.
+    let companyPropertyIds: string[] | null = null;
+    if (companyId) {
+      try {
+        const props = await this.prisma.property.findMany({
+          where: { companyId },
+          select: { id: true },
+        });
+        companyPropertyIds = props.map((p) => p.id);
+      } catch {
+        companyPropertyIds = [];
+      }
+    }
+    const taskCompanyWhere = companyPropertyIds === null
+      ? {}
+      : { propertyId: { in: companyPropertyIds.length > 0 ? companyPropertyIds : ['__none__'] } };
     const userCompanyWhere = companyId ? { companyId } : {};
     const attendanceCompanyWhere = companyId ? { user: { companyId } } : {};
     const now = new Date();
