@@ -350,6 +350,25 @@ export class AuthService {
         `This email is already registered as ${roleStr.toLowerCase()}. Sign in instead, or register under a different role.`,
       );
     }
+    // Username must also be unique per role. The Postgres-level
+    // partial unique index on (metadata->>'username', role) is the
+    // hard guarantee; this explicit check exists so the user sees a
+    // clean "username taken" error instead of a raw Prisma unique
+    // violation.
+    if (dto.username && dto.username.trim()) {
+      const usernameClash = await this.prisma.user.findFirst({
+        where: {
+          role,
+          metadata: { path: ['username'], equals: dto.username.trim() },
+        },
+        select: { id: true },
+      });
+      if (usernameClash) {
+        throw new BadRequestException(
+          `The username "${dto.username.trim()}" is already taken for ${roleStr.toLowerCase()}. Pick a different one.`,
+        );
+      }
+    }
     const fullName = `${dto.firstName} ${dto.lastName}`.trim();
 
     // Build the metadata blob first as a plain object so any
