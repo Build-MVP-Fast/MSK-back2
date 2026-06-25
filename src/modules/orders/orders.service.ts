@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { NotificationChannel, OrderStatus, Prisma } from '@prisma/client';
+import { NotificationChannel, OrderStatus, Prisma, UserRole } from '@prisma/client';
 import { nanoid } from 'nanoid';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -59,12 +59,33 @@ export class OrdersService {
 
   async create(dto: {
     supplierId?: string;
+    /** Convenience: when the admin only knows the supplier's login
+     *  email, resolve it server-side to the SupplierProfile.id. */
+    supplierEmail?: string;
     createdById?: string;
     items: { itemId: string; quantity: number; unitPrice: number }[];
     currency?: string;
     notes?: string;
     expectedAt?: Date;
   }) {
+    let supplierId = dto.supplierId;
+    if (!supplierId && dto.supplierEmail) {
+      const trimmed = dto.supplierEmail.trim();
+      // Match on email + role=SUPPLIER (multi-role identity: one email
+      // can hold both a supplier and a non-supplier account; we only
+      // want the supplier one). supplierProfile is the relation we
+      // need the id of for the Order.supplierId FK.
+      const supplierUser = await this.prisma.user.findFirst({
+        where: { email: trimmed, role: UserRole.SUPPLIER },
+        include: { supplierProfile: true },
+      });
+      if (!supplierUser?.supplierProfile) {
+        throw new NotFoundException(
+          `No supplier is registered with the email "${trimmed}". Ask them to sign up first.`,
+        );
+      }
+      supplierId = supplierUser.supplierProfile.id;
+    }
     const items = dto.items.map((i) => ({
       itemId: i.itemId,
       quantity: i.quantity,
@@ -75,7 +96,7 @@ export class OrdersService {
     const order = await this.prisma.order.create({
       data: {
         number: `PO-${new Date().getFullYear()}-${nanoid(6).toUpperCase()}`,
-        supplierId: dto.supplierId,
+        supplierId,
         createdById: dto.createdById,
         currency: dto.currency ?? 'USD',
         notes: dto.notes,
@@ -85,7 +106,7 @@ export class OrdersService {
       },
       include: { items: true },
     });
-    const supplierUserId = await this.resolveSupplierUserId(dto.supplierId);
+    const supplierUserId = await this.resolveSupplierUserId(supplierId);
     this.notify(supplierUserId, 'New purchase order', `Order ${order.number}`, order.id);
     return order;
   }
