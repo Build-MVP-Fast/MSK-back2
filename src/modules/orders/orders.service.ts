@@ -57,6 +57,22 @@ export class OrdersService {
     return order;
   }
 
+  /** Cheap ownership check used by the supplier-scoped detail route.
+   *  Returns true when the supplier whose User.id matches the caller
+   *  is the supplier the order is bound to. */
+  async isOrderForSupplierUser(orderId: string, userId: string): Promise<boolean> {
+    const profile = await this.prisma.supplierProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!profile) return false;
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { supplierId: true },
+    });
+    return order?.supplierId === profile.id;
+  }
+
   async create(dto: {
     supplierId?: string;
     /** Convenience: when the admin only knows the supplier's login

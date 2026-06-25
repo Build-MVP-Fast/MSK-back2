@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { OrderStatus, UserRole } from '@prisma/client';
 
@@ -23,10 +23,20 @@ export class OrdersController {
     return this.service.list({ ...q, companyId: companyScope(user, q?.companyId) });
   }
 
-  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.SUPPLIER)
   @Get(':id')
-  detail(@Param('id') id: string) {
-    return this.service.detail(id);
+  async detail(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    const order = await this.service.detail(id);
+    // Suppliers can only fetch orders bound to their own
+    // SupplierProfile. Defence against IDOR — without it any
+    // supplier could read any order by guessing the UUID.
+    if (user.role === UserRole.SUPPLIER) {
+      const ok = await this.service.isOrderForSupplierUser(order.id, user.id);
+      if (!ok) {
+        throw new ForbiddenException('Not your order');
+      }
+    }
+    return order;
   }
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
