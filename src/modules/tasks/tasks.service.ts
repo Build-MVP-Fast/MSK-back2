@@ -99,7 +99,13 @@ export class TasksService {
   detail(id: string) {
     return this.prisma.taskItem.findUnique({
       where: { id },
-      include: { assignees: { include: { user: true } }, department: true },
+      include: {
+        assignees: { include: { user: true } },
+        department: true,
+        createdBy: {
+          select: { id: true, fullName: true, firstName: true, lastName: true, email: true, avatarUrl: true },
+        },
+      },
     });
   }
 
