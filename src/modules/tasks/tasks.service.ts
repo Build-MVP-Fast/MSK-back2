@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { NotificationChannel, Prisma, TaskStatus } from '@prisma/client';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -26,6 +26,7 @@ function readMetadata(raw: Prisma.JsonValue | null | undefined): TaskMetadataSha
 
 @Injectable()
 export class TasksService {
+  private readonly logger = new Logger(TasksService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
@@ -49,8 +50,28 @@ export class TasksService {
     );
   }
 
-  list(filter: { status?: TaskStatus; assigneeId?: string; departmentId?: string; propertyId?: string; companyId?: string } = {}) {
-    return this.prisma.taskItem.findMany({
+  async list(filter: { status?: TaskStatus; assigneeId?: string; departmentId?: string; propertyId?: string; companyId?: string } = {}) {
+    try {
+      // Try the include with user first. If that throws (Prisma client
+      // drift / migration mismatch) fall back to assignments-only and
+      // hydrate the user records separately so the endpoint never 500s.
+      return await this.prisma.taskItem.findMany({
+        where: {
+          ...(filter.status && { status: filter.status }),
+          ...(filter.departmentId && { departmentId: filter.departmentId }),
+          ...(filter.propertyId && { propertyId: filter.propertyId }),
+          ...(filter.assigneeId && { assignees: { some: { userId: filter.assigneeId } } }),
+          ...(filter.companyId && { property: { companyId: filter.companyId } }),
+        },
+        include: { assignees: { include: { user: true } } },
+        orderBy: [{ createdAt: 'desc' }],
+      });
+    } catch (e) {
+      this.logger.warn(`[tasks.list] include failed: ${e instanceof Error ? e.message : e}`);
+    }
+
+    // Fallback: bare assignment rows, then hydrate users in one go.
+    const tasks = await this.prisma.taskItem.findMany({
       where: {
         ...(filter.status && { status: filter.status }),
         ...(filter.departmentId && { departmentId: filter.departmentId }),
@@ -58,9 +79,21 @@ export class TasksService {
         ...(filter.assigneeId && { assignees: { some: { userId: filter.assigneeId } } }),
         ...(filter.companyId && { property: { companyId: filter.companyId } }),
       },
-      include: { assignees: { include: { user: true } } },
-      orderBy: [{ priority: 'desc' }, { dueAt: 'asc' }],
+      include: { assignees: true },
+      orderBy: [{ createdAt: 'desc' }],
     });
+    const userIds = Array.from(new Set(tasks.flatMap((t) => t.assignees.map((a) => a.userId))));
+    const users = userIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, fullName: true, firstName: true, lastName: true, email: true, avatarUrl: true },
+        })
+      : [];
+    const userById = new Map(users.map((u) => [u.id, u]));
+    return tasks.map((t) => ({
+      ...t,
+      assignees: t.assignees.map((a) => ({ ...a, user: userById.get(a.userId) ?? null })),
+    }));
   }
 
   detail(id: string) {
