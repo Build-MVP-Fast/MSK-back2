@@ -129,6 +129,12 @@ export class OrdersService {
         notes: dto.notes,
         expectedAt: dto.expectedAt,
         totalAmount,
+        // The mobile Create Request flow always sends — there is no
+        // "save as draft" UI — so default to SUBMITTED. The Prisma
+        // schema default of DRAFT was leaving every new order in a
+        // limbo state where the supplier dashboard's "New Orders"
+        // counter (which looks for SUBMITTED) read zero.
+        status: OrderStatus.SUBMITTED,
         // Stamp the supplier's email on the order so a supplier who
         // signs up AFTER the order was placed (or whose profile was
         // mid-create when the order came in) can still claim it on
