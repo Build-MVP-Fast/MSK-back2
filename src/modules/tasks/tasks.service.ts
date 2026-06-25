@@ -51,18 +51,38 @@ export class TasksService {
   }
 
   async list(filter: { status?: TaskStatus; assigneeId?: string; departmentId?: string; propertyId?: string; companyId?: string } = {}) {
+    // TaskItem has no Prisma `property` relation (only the scalar
+    // propertyId column), so we can't use `property: { companyId }`
+    // in the where clause — it 500s with "Unknown arg". When the
+    // caller passes a companyId, resolve it to the company's
+    // properties first and turn it into a `propertyId IN […]` filter.
+    let propertyIdFilter: { in: string[] } | string | undefined = filter.propertyId;
+    if (filter.companyId) {
+      const props = await this.prisma.property.findMany({
+        where: { companyId: filter.companyId },
+        select: { id: true },
+      });
+      const ids = props.map((p) => p.id);
+      // Empty list means "no properties for this company" — narrow to
+      // an unsatisfiable filter so we return [] instead of everything.
+      propertyIdFilter = filter.propertyId
+        ? (ids.includes(filter.propertyId) ? filter.propertyId : { in: [] })
+        : { in: ids.length > 0 ? ids : ['__none__'] };
+    }
+
+    const where: Prisma.TaskItemWhereInput = {
+      ...(filter.status && { status: filter.status }),
+      ...(filter.departmentId && { departmentId: filter.departmentId }),
+      ...(propertyIdFilter !== undefined && { propertyId: propertyIdFilter as any }),
+      ...(filter.assigneeId && { assignees: { some: { userId: filter.assigneeId } } }),
+    };
+
     try {
       // Try the include with user first. If that throws (Prisma client
       // drift / migration mismatch) fall back to assignments-only and
       // hydrate the user records separately so the endpoint never 500s.
       return await this.prisma.taskItem.findMany({
-        where: {
-          ...(filter.status && { status: filter.status }),
-          ...(filter.departmentId && { departmentId: filter.departmentId }),
-          ...(filter.propertyId && { propertyId: filter.propertyId }),
-          ...(filter.assigneeId && { assignees: { some: { userId: filter.assigneeId } } }),
-          ...(filter.companyId && { property: { companyId: filter.companyId } }),
-        },
+        where,
         include: { assignees: { include: { user: true } } },
         orderBy: [{ createdAt: 'desc' }],
       });
@@ -72,13 +92,7 @@ export class TasksService {
 
     // Fallback: bare assignment rows, then hydrate users in one go.
     const tasks = await this.prisma.taskItem.findMany({
-      where: {
-        ...(filter.status && { status: filter.status }),
-        ...(filter.departmentId && { departmentId: filter.departmentId }),
-        ...(filter.propertyId && { propertyId: filter.propertyId }),
-        ...(filter.assigneeId && { assignees: { some: { userId: filter.assigneeId } } }),
-        ...(filter.companyId && { property: { companyId: filter.companyId } }),
-      },
+      where,
       include: { assignees: true },
       orderBy: [{ createdAt: 'desc' }],
     });
