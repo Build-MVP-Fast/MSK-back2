@@ -69,22 +69,33 @@ export class OrdersService {
     expectedAt?: Date;
   }) {
     let supplierId = dto.supplierId;
-    if (!supplierId && dto.supplierEmail) {
-      const trimmed = dto.supplierEmail.trim();
-      // Match on email + role=SUPPLIER (multi-role identity: one email
-      // can hold both a supplier and a non-supplier account; we only
-      // want the supplier one). supplierProfile is the relation we
-      // need the id of for the Order.supplierId FK.
+    const trimmedEmail = dto.supplierEmail?.trim().toLowerCase();
+    if (!supplierId && trimmedEmail) {
+      // Match on email + role=SUPPLIER. Auto-create the SupplierProfile
+      // if the user exists as SUPPLIER but the profile row is missing
+      // (legacy data or interrupted wizard run). Bind the order to it.
       const supplierUser = await this.prisma.user.findFirst({
-        where: { email: trimmed, role: UserRole.SUPPLIER },
+        where: { email: trimmedEmail, role: UserRole.SUPPLIER },
         include: { supplierProfile: true },
       });
-      if (!supplierUser?.supplierProfile) {
-        throw new NotFoundException(
-          `No supplier is registered with the email "${trimmed}". Ask them to sign up first.`,
-        );
+      if (supplierUser) {
+        if (supplierUser.supplierProfile) {
+          supplierId = supplierUser.supplierProfile.id;
+        } else {
+          const profile = await this.prisma.supplierProfile.create({
+            data: {
+              userId: supplierUser.id,
+              companyName: supplierUser.fullName?.trim() || trimmedEmail,
+            },
+          });
+          supplierId = profile.id;
+        }
       }
-      supplierId = supplierUser.supplierProfile.id;
+      // If no SUPPLIER user with that email exists yet, DON'T throw.
+      // The order is still created (the operator might have placed it
+      // before the supplier signed up); the next time that supplier
+      // logs in, listForSupplierUser claims any orphaned orders that
+      // were tagged with their email via metadata.supplierEmail.
     }
     const items = dto.items.map((i) => ({
       itemId: i.itemId,
@@ -102,6 +113,13 @@ export class OrdersService {
         notes: dto.notes,
         expectedAt: dto.expectedAt,
         totalAmount,
+        // Stamp the supplier's email on the order so a supplier who
+        // signs up AFTER the order was placed (or whose profile was
+        // mid-create when the order came in) can still claim it on
+        // their first dashboard load via listForSupplierUser.
+        ...(trimmedEmail && {
+          metadata: { supplierEmail: trimmedEmail } as Prisma.InputJsonValue,
+        }),
         items: { create: items },
       },
       include: { items: true },
@@ -120,12 +138,60 @@ export class OrdersService {
   }
 
   /** Orders assigned to the supplier whose User.id matches `userId`.
-   *  Resolves the SupplierProfile.id once and queries from there. */
+   *  Resolves the SupplierProfile.id once and queries from there.
+   *
+   *  Self-heal: if the caller is a SUPPLIER user with no profile row
+   *  (legacy data, incomplete wizard run, or any other reason the
+   *  profile didn't get created at registration), we create the row
+   *  on the fly using their fullName/email as companyName. Then we
+   *  ALSO look for orders that were created against that email
+   *  before the profile existed (those have supplierId = null but
+   *  metadata.supplierEmail = the address) and bind them in. This is
+   *  what unblocks "I created an order for fapic34088@... and the
+   *  supplier doesn't see it" without us having to surgically delete
+   *  and recreate users on the live DB. */
   async listForSupplierUser(userId: string, status?: OrderStatus) {
-    const profile = await this.prisma.supplierProfile.findUnique({
+    let profile = await this.prisma.supplierProfile.findUnique({
       where: { userId },
     });
-    if (!profile) return [];
+    if (!profile) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, fullName: true, role: true },
+      });
+      if (!user || user.role !== UserRole.SUPPLIER) return [];
+      profile = await this.prisma.supplierProfile.create({
+        data: {
+          userId: user.id,
+          companyName: user.fullName?.trim() || user.email || 'Supplier',
+        },
+      });
+    }
+    // Backfill: bind any pre-existing orders that targeted this
+    // supplier's email but never resolved to a supplierId because
+    // the original create call happened before the email→profile
+    // lookup shipped (commit 506b9ed). One-shot per supplier load.
+    const userEmail = (
+      await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true },
+      })
+    )?.email?.toLowerCase();
+    if (userEmail) {
+      const orphans = await this.prisma.order.findMany({
+        where: {
+          supplierId: null,
+          metadata: { path: ['supplierEmail'], equals: userEmail },
+        },
+        select: { id: true },
+      });
+      if (orphans.length > 0) {
+        await this.prisma.order.updateMany({
+          where: { id: { in: orphans.map((o) => o.id) } },
+          data: { supplierId: profile.id },
+        });
+      }
+    }
     return this.prisma.order.findMany({
       where: {
         supplierId: profile.id,
