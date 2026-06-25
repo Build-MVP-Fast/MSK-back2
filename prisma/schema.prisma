@@ -335,8 +335,14 @@ enum AuditAction {
 
 model User {
   id            String       @id @default(uuid())
-  email         String?      @unique
-  phone         String?      @unique
+  // Email + phone are NOT globally unique. The product allows one
+  // human to hold a Supplier account and a Property-Operator account
+  // and a Staff account under the same email — each role gets its
+  // own row, distinguished by (email, role). The composite uniques
+  // at the bottom of the model enforce one row per (email, role) so
+  // you can't double-create within the same lane.
+  email         String?
+  phone         String?
   fullName      String?
   firstName     String?
   lastName      String?
@@ -420,6 +426,14 @@ model User {
   @@index([companyId])
   @@index([email])
   @@index([phone])
+  // Multi-role identity: one (email, role) pair can only exist once
+  // (no double-supplier rows for "test@x.com"), but the same email
+  // can register as Supplier AND Property Operator AND Staff —
+  // those land as three separate rows. Postgres treats NULLs as
+  // distinct, so guest / phone-only / pre-claim users with email=NULL
+  // aren't blocked. Same shape for phone.
+  @@unique([email, role], name: "User_email_role_key")
+  @@unique([phone, role], name: "User_phone_role_key")
 }
 
 model UserCredential {

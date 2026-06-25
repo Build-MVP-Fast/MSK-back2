@@ -50,7 +50,7 @@ export class DevUserSeed implements OnApplicationBootstrap {
     const lastName = this.config.get<string>('DEV_USER_LAST_NAME', 'User');
     const secretHash = await argon2.hash(pin);
 
-    const existing = await this.prisma.user.findUnique({
+    const existing = await this.prisma.user.findFirst({
       where: { email },
       include: { credentials: true },
     });

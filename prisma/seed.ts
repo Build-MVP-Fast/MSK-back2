@@ -35,7 +35,7 @@ async function main() {
 
   const pinHash = await argon2.hash('1234');
   await prisma.user.upsert({
-    where: { email: 'hassan@msk.local' },
+    where: { User_email_role_key: { email: 'hassan@msk.local', role: UserRole.SUPER_USER } },
     update: {},
     create: {
       email: 'hassan@msk.local',

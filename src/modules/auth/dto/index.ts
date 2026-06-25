@@ -44,6 +44,18 @@ export class LoginEmailDto {
   // information about the password policy.
   @IsString()
   password!: string;
+
+  /**
+   * Optional role hint from the role-select screen on the mobile app.
+   * Lets the same email/username be used for multiple role-accounts
+   * (Supplier + Property Operator + Staff under one human). When
+   * present the lookup is narrowed to that role; when absent the
+   * lookup falls back to "any role" (legacy behaviour).
+   */
+  @IsOptional()
+  @IsString()
+  @IsIn(['STAFF', 'SUPERVISOR', 'RECEPTIONIST', 'SUPPLIER', 'ADMIN', 'SUPER_USER'])
+  role?: 'STAFF' | 'SUPERVISOR' | 'RECEPTIONIST' | 'SUPPLIER' | 'ADMIN' | 'SUPER_USER';
 }
 
 export class RegisterGuestDto {

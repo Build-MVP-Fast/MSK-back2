@@ -845,7 +845,7 @@ export class BookingsService {
     const guestPhone = dto.phone ?? booking.guestPhone ?? undefined;
     let guestUserIdToSet: string | null = booking.guestUserId;
     if (!guestUserIdToSet && guestEmail) {
-      const guestUser = await this.prisma.user.findUnique({
+      const guestUser = await this.prisma.user.findFirst({
         where: { email: guestEmail },
         select: { id: true },
       });
@@ -888,7 +888,7 @@ export class BookingsService {
     // else's stay in their own /me/current-stay view).
     let bookedByUserId: string | null = null;
     if (dto.isBehalfBooking && dto.bookerEmail && dto.bookerEmail !== dto.email) {
-      const bookerUser = await this.prisma.user.findUnique({
+      const bookerUser = await this.prisma.user.findFirst({
         where: { email: dto.bookerEmail },
         select: { id: true },
       });
@@ -1034,7 +1034,7 @@ export class BookingsService {
    * controller wraps it in a check-out scoped JWT (`mode: 'user'`).
    */
   async checkOutSignInWithCredentials(email: string, password: string) {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findFirst({
       where: { email },
       include: { credentials: true },
     });
@@ -1083,7 +1083,7 @@ export class BookingsService {
    * server logs even before SMTP is wired.
    */
   async checkOutRequestOtp(email: string) {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findFirst({
       where: { email },
       select: { id: true, isActive: true, email: true },
     });
@@ -1105,7 +1105,7 @@ export class BookingsService {
    * id in a check-out token (`mode: 'user'`).
    */
   async checkOutVerifyOtp(email: string, code: string) {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findFirst({
       where: { email },
       select: { id: true, isActive: true, email: true },
     });

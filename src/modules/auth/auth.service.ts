@@ -30,7 +30,7 @@ export class AuthService {
   // ---------------------------------------------------------------------- web
 
   async registerWebGuest(dto: RegisterWebGuestDto) {
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const existing = await this.prisma.user.findFirst({ where: { email: dto.email } });
     if (existing) throw new BadRequestException('Email already registered');
 
     const user = await this.prisma.user.create({
@@ -69,7 +69,7 @@ export class AuthService {
    * there is a user, so unknown emails silently no-op.
    */
   async requestLoginOtp(email: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.prisma.user.findFirst({ where: { email } });
     if (user && user.isActive) {
       await this.otp.send({
         destination: email,
@@ -92,7 +92,7 @@ export class AuthService {
       code,
       purpose: OtpPurpose.LOGIN,
     });
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.prisma.user.findFirst({ where: { email } });
     if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
     // Mobile-only path — a PLATFORM (msk-admin) user using this endpoint
     // would cross the lane boundary; refuse with the same generic message
@@ -178,15 +178,26 @@ export class AuthService {
   ) {
     const identifier = dto.email.trim();
     const looksLikeEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
+    // Multi-role identity: when the caller passes a role hint (the
+    // role-select card the user tapped on mobile), scope the lookup
+    // to that role so the same email/username can resolve to a
+    // different account per role. Without a hint, fall back to "any
+    // role" so legacy clients still work.
+    const roleFilter: { role?: UserRole } = dto.role
+      ? { role: UserRole[dto.role as keyof typeof UserRole] }
+      : {};
     const user = looksLikeEmail
-      ? await this.prisma.user.findUnique({
-          where: { email: identifier },
+      ? await this.prisma.user.findFirst({
+          where: { email: identifier, ...roleFilter },
           include: { credentials: true },
         })
       : await this.prisma.user.findFirst({
           // Username is stored on User.metadata.username by the
           // Property-Operator / Supplier / Staff onboarding wizards.
-          where: { metadata: { path: ['username'], equals: identifier } },
+          where: {
+            metadata: { path: ['username'], equals: identifier },
+            ...roleFilter,
+          },
           include: { credentials: true },
         });
     if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
@@ -207,7 +218,7 @@ export class AuthService {
   }
 
   async requestPasswordReset(email: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.prisma.user.findFirst({ where: { email } });
     // Always return success — don't leak existence of accounts
     if (!user) return { sent: true };
     await this.otp.send({
@@ -325,10 +336,20 @@ export class AuthService {
    * wizard can drop the new staff member straight into the dashboard.
    */
   async registerStaff(dto: RegisterStaffDto) {
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (existing) throw new BadRequestException('Email already registered');
     const roleStr = dto.role ?? 'STAFF';
     const role = UserRole[roleStr as keyof typeof UserRole];
+    // Multi-role identity: scope the dup check to (email, role) so the
+    // same human can hold a Supplier and a Staff and an Operator
+    // account under the same email. Reject only if the (email, role)
+    // combination already exists.
+    const existing = await this.prisma.user.findFirst({
+      where: { email: dto.email, role },
+    });
+    if (existing) {
+      throw new BadRequestException(
+        `This email is already registered as ${roleStr.toLowerCase()}. Sign in instead, or register under a different role.`,
+      );
+    }
     const fullName = `${dto.firstName} ${dto.lastName}`.trim();
 
     // Build the metadata blob first as a plain object so any

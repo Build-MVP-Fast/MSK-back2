@@ -56,7 +56,7 @@ export class UsersService {
   }
 
   async detail(id: string) {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findFirst({
       where: { id },
       include: {
         guestProfile: { include: { additionalGuests: true } },
@@ -79,7 +79,7 @@ export class UsersService {
       typeof dto.metadata === 'object' &&
       !Array.isArray(dto.metadata)
     ) {
-      const existing = await this.prisma.user.findUnique({
+      const existing = await this.prisma.user.findFirst({
         where: { id },
         select: { metadata: true },
       });
@@ -99,7 +99,7 @@ export class UsersService {
     const fn = dto.firstName;
     const ln = dto.lastName;
     if ((fn !== undefined || ln !== undefined) && dto.fullName === undefined) {
-      const existing = await this.prisma.user.findUnique({
+      const existing = await this.prisma.user.findFirst({
         where: { id },
         select: { firstName: true, lastName: true },
       });
@@ -117,7 +117,7 @@ export class UsersService {
    *  their own tenant (a Property Operator must not be able to soft-
    *  delete users belonging to another company). */
   async deactivate(id: string, callerCompanyId?: string) {
-    const user = await this.prisma.user.findUnique({ where: { id } });
+    const user = await this.prisma.user.findFirst({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
     if (callerCompanyId && user.companyId !== callerCompanyId) {
       throw new ForbiddenException("You can't deactivate a user from another company.");
@@ -138,7 +138,7 @@ export class UsersService {
    * never echoed back when the admin supplied their own password.
    */
   async createStaff(dto: CreateUserDto & { companyId?: string; accountKind?: AccountKind }): Promise<CreateStaffResult> {
-    const existing = await this.prisma.user.findUnique({
+    const existing = await this.prisma.user.findFirst({
       where: { email: dto.email },
       include: { credentials: true },
     });
@@ -282,7 +282,7 @@ export class UsersService {
       file.mimetype || 'application/octet-stream',
       folder,
     );
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findFirst({
       where: { id: userId },
       select: { metadata: true },
     });
