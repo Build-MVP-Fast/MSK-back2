@@ -45,9 +45,11 @@ export class InvoicesController {
     const recipientName =
       dto.scope === 'self' ? (await this.lookupOwnName(userId)) : dto.recipientName;
     const recipientEmail = dto.scope === 'self' ? email ?? undefined : dto.recipientEmail;
-    if (dto.scope !== 'self' && (!recipientName || !recipientEmail)) {
+    // Email is optional — reception can still issue the invoice with just
+    // a name. Only the recipient name is mandatory for company / third-party.
+    if (dto.scope !== 'self' && !recipientName) {
       throw new BadRequestException(
-        'Recipient name and email are required for company or third-party invoices.',
+        'A recipient name is required for company or third-party invoices.',
       );
     }
     return this.service.request({
