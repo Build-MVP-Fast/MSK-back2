@@ -22,6 +22,7 @@
     "prisma:seed": "ts-node prisma/seed.ts",
     "prisma:clean-photos": "ts-node prisma/scripts/clean-bad-photo-urls.ts",
     "prisma:seed-cms": "ts-node prisma/seeds/cms.seed.ts",
+    "prisma:seed-demo": "ts-node prisma/seeds/demo-bookings.seed.ts",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down"
   },
