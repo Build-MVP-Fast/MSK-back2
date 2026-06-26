@@ -67,9 +67,17 @@ export class AuthService {
    * given email. We never reveal whether the account exists — same
    * `{ sent: true }` response either way — but only actually send when
    * there is a user, so unknown emails silently no-op.
+   *
+   * Multi-role: this endpoint is the GUEST sign-in path, so we scope
+   * the lookup to role=WEB_GUEST. Without it the same email shared
+   * between a Guest account and a Staff / Operator / Supplier account
+   * would resolve to whichever row was created first — and the next
+   * step would log the user into the wrong dashboard.
    */
   async requestLoginOtp(email: string) {
-    const user = await this.prisma.user.findFirst({ where: { email } });
+    const user = await this.prisma.user.findFirst({
+      where: { email, role: UserRole.WEB_GUEST },
+    });
     if (user && user.isActive) {
       await this.otp.send({
         destination: email,
@@ -85,6 +93,9 @@ export class AuthService {
    * Mobile guest sign-in step 2: consume the LOGIN OTP and issue auth
    * tokens. Used by the mobile sign-in-otp screen — no PIN/password
    * required because possession of the email inbox is the proof.
+   *
+   * Same WEB_GUEST scope as requestLoginOtp — refuses cleanly if the
+   * email exists only as a non-guest role.
    */
   async loginWithOtp(email: string, code: string) {
     await this.otp.consume({
@@ -92,8 +103,14 @@ export class AuthService {
       code,
       purpose: OtpPurpose.LOGIN,
     });
-    const user = await this.prisma.user.findFirst({ where: { email } });
-    if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
+    const user = await this.prisma.user.findFirst({
+      where: { email, role: UserRole.WEB_GUEST },
+    });
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException(
+        'No guest account is registered with this email. Sign up first, or use the right role from the role selector.',
+      );
+    }
     // Mobile-only path — a PLATFORM (msk-admin) user using this endpoint
     // would cross the lane boundary; refuse with the same generic message
     // so we don't leak which lane the address belongs to.
