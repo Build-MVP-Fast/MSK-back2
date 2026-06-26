@@ -301,6 +301,10 @@ export class UsersService {
     const next: Record<string, unknown> = {
       ...prev,
       [metadataKey]: stored.url,
+      // Stamp when this slot was last uploaded so the profile screen can
+      // show a real "Added on" date instead of a placeholder. Stored
+      // alongside the URL in the same JSON column — no migration needed.
+      [`${metadataKey}At`]: new Date().toISOString(),
     };
     await this.prisma.user.update({
       where: { id: userId },
