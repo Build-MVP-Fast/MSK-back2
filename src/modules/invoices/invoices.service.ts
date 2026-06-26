@@ -8,9 +8,20 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 export class InvoicesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(userId?: string) {
+  list(opts: { userId?: string; operatorCompanyId?: string } = {}) {
+    const where: Prisma.InvoiceWhereInput = {};
+    if (opts.userId) where.booking = { guestUserId: opts.userId };
+    // Tenant scope for operator-side listing: only invoices whose
+    // metadata.operatorCompanyId matches the caller's company. Set
+    // at create-time by the supplier flow.
+    if (opts.operatorCompanyId) {
+      where.metadata = {
+        path: ['operatorCompanyId'],
+        equals: opts.operatorCompanyId,
+      };
+    }
     return this.prisma.invoice.findMany({
-      where: userId ? { booking: { guestUserId: userId } } : undefined,
+      where,
       include: { items: true, booking: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -141,7 +152,7 @@ export class InvoicesService {
    *  We stamp it ISSUED right away — the admin accounts team can
    *  approve / pay / void it from the admin side. The optional
    *  `orderId` is stored on metadata for cross-reference. */
-  createSupplierInvoice(
+  async createSupplierInvoice(
     issuedById: string,
     input: {
       recipientName?: string;
@@ -164,6 +175,20 @@ export class InvoicesService {
       total: i.quantity * i.unitPrice,
     }));
     const subtotal = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
+
+    // Resolve the buyer-side companyId from the linked order so the
+    // operator-side inbox can filter to invoices for orders THEIR
+    // company placed. Without this, every Property Operator would
+    // see every supplier invoice on the entire platform.
+    let operatorCompanyId: string | null = null;
+    if (input.orderId) {
+      const order = await this.prisma.order.findUnique({
+        where: { id: input.orderId },
+        select: { createdBy: { select: { companyId: true } } },
+      });
+      operatorCompanyId = order?.createdBy?.companyId ?? null;
+    }
+
     return this.prisma.invoice.create({
       data: {
         number: `INV-${new Date().getFullYear()}-${nanoid(6).toUpperCase()}`,
@@ -179,7 +204,10 @@ export class InvoicesService {
         issuedAt: new Date(),
         notes: input.notes,
         ...(input.orderId && {
-          metadata: { orderId: input.orderId } as unknown as Prisma.InputJsonValue,
+          metadata: {
+            orderId: input.orderId,
+            ...(operatorCompanyId && { operatorCompanyId }),
+          } as unknown as Prisma.InputJsonValue,
         }),
         items: { create: items },
       },

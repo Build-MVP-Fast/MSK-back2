@@ -49,11 +49,15 @@ export class LeaveService {
   }
 
   /** Manager / admin view — every team member's leave, optionally filtered. */
-  list(filter: { status?: LeaveStatus; userId?: string } = {}) {
+  list(filter: { status?: LeaveStatus; userId?: string; companyId?: string } = {}) {
     return this.prisma.leaveRequest.findMany({
       where: {
         ...(filter.status && { status: filter.status }),
         ...(filter.userId && { userId: filter.userId }),
+        // Tenant scope: only leaves filed by staff in the operator's
+        // company. Without this every Property Operator on the
+        // platform sees every other operator's leave requests.
+        ...(filter.companyId && { user: { companyId: filter.companyId } }),
       },
       include: {
         user: { select: { id: true, fullName: true, role: true, avatarUrl: true } },
@@ -79,11 +83,20 @@ export class LeaveService {
     });
   }
 
-  async review(id: string, reviewerId: string, dto: ReviewLeaveDto) {
-    const row = await this.prisma.leaveRequest.findUnique({ where: { id } });
+  async review(id: string, reviewerId: string, dto: ReviewLeaveDto, reviewerCompanyId?: string) {
+    const row = await this.prisma.leaveRequest.findUnique({
+      where: { id },
+      include: { user: { select: { companyId: true } } },
+    });
     if (!row) throw new NotFoundException('Leave request not found');
     if (row.status !== LeaveStatus.PENDING) {
       throw new BadRequestException('Only pending requests can be reviewed.');
+    }
+    // Tenant guard: ADMIN-tier callers can only approve/reject leaves
+    // filed by staff in their own company. Without it, operator A
+    // could approve operator B's staff's leave by guessing the UUID.
+    if (reviewerCompanyId && row.user?.companyId && row.user.companyId !== reviewerCompanyId) {
+      throw new ForbiddenException('Not your team');
     }
     const status =
       dto.status === 'APPROVED' ? LeaveStatus.APPROVED : LeaveStatus.REJECTED;

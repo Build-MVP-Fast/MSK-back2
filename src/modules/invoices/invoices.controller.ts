@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, ForbiddenException, Get, NotFoun
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuthenticatedUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -72,25 +72,39 @@ export class InvoicesController {
 
   @Roles(UserRole.WEB_GUEST, UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get()
-  list(@CurrentUser('id') userId: string, @CurrentUser('role') role: UserRole) {
-    return role === UserRole.WEB_GUEST
-      ? this.service.list(userId)
-      : this.service.list();
+  list(
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') role: UserRole,
+    @CurrentUser('companyId') companyId: string | null,
+  ) {
+    if (role === UserRole.WEB_GUEST) return this.service.list({ userId });
+    if (role === UserRole.SUPER_USER) return this.service.list();
+    // ADMIN / RECEPTIONIST — scope to their company so they don't see
+    // every supplier invoice on the platform.
+    return this.service.list({ operatorCompanyId: companyId ?? undefined });
   }
 
   @Roles(UserRole.WEB_GUEST, UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST, UserRole.SUPPLIER)
   @Get(':id')
   async detail(
     @Param('id') id: string,
-    @CurrentUser('id') userId: string,
-    @CurrentUser('role') role: UserRole,
+    @CurrentUser() caller: AuthenticatedUser,
   ) {
     const invoice = await this.service.detail(id);
-    if (role === UserRole.SUPPLIER) {
+    if (caller.role === UserRole.SUPPLIER) {
       // Suppliers can only fetch invoices they raised. issuedById is the
       // User.id of the supplier user who hit POST /invoices/supplier.
       const issuedBy = (invoice as unknown as { issuedById?: string | null }).issuedById ?? null;
-      if (issuedBy !== userId) {
+      if (issuedBy !== caller.id) {
+        throw new ForbiddenException('Not your invoice');
+      }
+    } else if (caller.role === UserRole.ADMIN || caller.role === UserRole.RECEPTIONIST) {
+      // Tenant guard: operator-tier callers only see invoices for
+      // orders their own company placed. Without this, operator A
+      // could fetch operator B's supplier invoice by guessing the UUID.
+      const meta = (invoice as unknown as { metadata?: { operatorCompanyId?: string } | null }).metadata ?? null;
+      const invoiceCompany = meta?.operatorCompanyId ?? null;
+      if (invoiceCompany && caller.companyId && invoiceCompany !== caller.companyId) {
         throw new ForbiddenException('Not your invoice');
       }
     }
@@ -104,13 +118,21 @@ export class InvoicesController {
   async setStatus(
     @Param('id') id: string,
     @Body() body: { status: 'PAID' | 'VOIDED' | 'ISSUED' },
-    @CurrentUser('id') userId: string,
-    @CurrentUser('role') role: UserRole,
+    @CurrentUser() caller: AuthenticatedUser,
   ) {
-    if (role === UserRole.SUPPLIER) {
+    if (caller.role === UserRole.SUPPLIER) {
       const invoice = await this.service.detail(id);
       const issuedBy = (invoice as unknown as { issuedById?: string | null }).issuedById ?? null;
-      if (issuedBy !== userId) {
+      if (issuedBy !== caller.id) {
+        throw new ForbiddenException('Not your invoice');
+      }
+    } else if (caller.role === UserRole.ADMIN) {
+      // Tenant guard: operator can only mark invoices for orders
+      // their own company placed.
+      const invoice = await this.service.detail(id);
+      const meta = (invoice as unknown as { metadata?: { operatorCompanyId?: string } | null }).metadata ?? null;
+      const invoiceCompany = meta?.operatorCompanyId ?? null;
+      if (invoiceCompany && caller.companyId && invoiceCompany !== caller.companyId) {
         throw new ForbiddenException('Not your invoice');
       }
     }
