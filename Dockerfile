@@ -39,4 +39,10 @@ EXPOSE 4000
 # schema (we hit this on the CMS deploy). `migrate deploy` is a no-op
 # when there's nothing pending, so the steady-state cost is one cheap
 # roundtrip per container start.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+# One-shot recovery for the failed 20260626140000_unique_username_per_role
+# migration: clear the failed marker so Prisma re-runs that migration
+# (with its now-safe dedupe-first SQL) instead of refusing to deploy
+# anything until the row is manually fixed. The `|| true` makes the
+# resolve step a no-op once the failed marker is gone, so this stays
+# safe to run on every container start.
+CMD ["sh", "-c", "(npx prisma migrate resolve --rolled-back 20260626140000_unique_username_per_role || true) && npx prisma migrate deploy && node dist/main.js"]
