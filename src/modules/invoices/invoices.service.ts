@@ -8,12 +8,48 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 export class InvoicesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(opts: { userId?: string; operatorCompanyId?: string } = {}) {
+  async list(opts: { userId?: string; operatorCompanyId?: string } = {}) {
+    // Backfill legacy supplier invoices that have metadata.orderId but
+    // no metadata.operatorCompanyId (created before the tenant-scope
+    // change shipped). Without this, every pre-change invoice is
+    // invisible to its rightful operator. Resolve via the linked
+    // order's createdBy.companyId and stamp it on the invoice.
+    if (opts.operatorCompanyId) {
+      // Pull every invoice whose metadata mentions an orderId, then
+      // in-memory filter to those missing operatorCompanyId. Cheap on
+      // realistic dataset sizes; the Prisma JSON-path NULL filter is
+      // finicky enough that going through JS once is safer.
+      const candidates = await this.prisma.invoice.findMany({
+        where: { metadata: { path: ['orderId'], not: Prisma.DbNull } },
+        select: { id: true, metadata: true },
+      });
+      for (const inv of candidates) {
+        const meta = (inv.metadata && typeof inv.metadata === 'object' && !Array.isArray(inv.metadata)
+          ? (inv.metadata as Record<string, unknown>)
+          : {});
+        if (typeof meta.operatorCompanyId === 'string' && meta.operatorCompanyId.length > 0) continue;
+        const orderId = typeof meta.orderId === 'string' ? meta.orderId : null;
+        if (!orderId) continue;
+        const order = await this.prisma.order.findUnique({
+          where: { id: orderId },
+          select: { createdBy: { select: { companyId: true } } },
+        });
+        const buyerCompanyId = order?.createdBy?.companyId ?? null;
+        if (!buyerCompanyId) continue;
+        await this.prisma.invoice.update({
+          where: { id: inv.id },
+          data: {
+            metadata: { ...meta, operatorCompanyId: buyerCompanyId } as Prisma.InputJsonValue,
+          },
+        });
+      }
+    }
+
     const where: Prisma.InvoiceWhereInput = {};
     if (opts.userId) where.booking = { guestUserId: opts.userId };
     // Tenant scope for operator-side listing: only invoices whose
     // metadata.operatorCompanyId matches the caller's company. Set
-    // at create-time by the supplier flow.
+    // at create-time by the supplier flow + backfilled above.
     if (opts.operatorCompanyId) {
       where.metadata = {
         path: ['operatorCompanyId'],
