@@ -25,6 +25,13 @@ export class InvoicesService {
     return invoice;
   }
 
+  async setStatus(id: string, status: 'PAID' | 'VOIDED' | 'ISSUED') {
+    return this.prisma.invoice.update({
+      where: { id },
+      data: { status },
+    });
+  }
+
   create(dto: {
     bookingId?: string;
     issuedById?: string;

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, NotFoundException, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
@@ -78,10 +78,43 @@ export class InvoicesController {
       : this.service.list();
   }
 
-  @Roles(UserRole.WEB_GUEST, UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
+  @Roles(UserRole.WEB_GUEST, UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST, UserRole.SUPPLIER)
   @Get(':id')
-  detail(@Param('id') id: string) {
-    return this.service.detail(id);
+  async detail(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') role: UserRole,
+  ) {
+    const invoice = await this.service.detail(id);
+    if (role === UserRole.SUPPLIER) {
+      // Suppliers can only fetch invoices they raised. issuedById is the
+      // User.id of the supplier user who hit POST /invoices/supplier.
+      const issuedBy = (invoice as unknown as { issuedById?: string | null }).issuedById ?? null;
+      if (issuedBy !== userId) {
+        throw new ForbiddenException('Not your invoice');
+      }
+    }
+    return invoice;
+  }
+
+  /** Supplier marks their own invoice as PAID once the operator
+   *  confirms the bank transfer. Same ownership check as detail. */
+  @Roles(UserRole.SUPPLIER, UserRole.ADMIN, UserRole.SUPER_USER)
+  @Patch(':id/status')
+  async setStatus(
+    @Param('id') id: string,
+    @Body() body: { status: 'PAID' | 'VOIDED' | 'ISSUED' },
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') role: UserRole,
+  ) {
+    if (role === UserRole.SUPPLIER) {
+      const invoice = await this.service.detail(id);
+      const issuedBy = (invoice as unknown as { issuedById?: string | null }).issuedById ?? null;
+      if (issuedBy !== userId) {
+        throw new ForbiddenException('Not your invoice');
+      }
+    }
+    return this.service.setStatus(id, body.status);
   }
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
