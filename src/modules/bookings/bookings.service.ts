@@ -340,6 +340,72 @@ export class BookingsService {
     });
   }
 
+  /**
+   * Add an additional guest to the signed-in user's current stay. Scoped
+   * to whatever booking `currentStay` surfaces, so a guest can only ever
+   * attach occupants to their own reservation. Returns the created row in
+   * the same shape `currentStayGuests` lists.
+   */
+  async addCurrentStayGuest(
+    userId: string,
+    email: string | null | undefined,
+    input: { fullName: string; email?: string; phone?: string; kidsCount?: number },
+  ) {
+    const stay = await this.currentStay(userId, email);
+    if (!stay) {
+      throw new NotFoundException('No active stay to add a guest to');
+    }
+    const kidsCount =
+      typeof input.kidsCount === 'number' && input.kidsCount > 0 ? input.kidsCount : null;
+    return this.prisma.bookingGuest.create({
+      data: {
+        bookingId: stay.id,
+        fullName: input.fullName.trim(),
+        email: input.email?.trim() || null,
+        phone: input.phone?.trim() || null,
+        hasKids: kidsCount != null ? true : false,
+        kidsCount,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        isPrimary: true,
+        hasKids: true,
+        kidsCount: true,
+      },
+    });
+  }
+
+  /**
+   * Remove an additional guest from the signed-in user's current stay.
+   * Verifies the row belongs to that booking before deleting so a guest
+   * can't delete occupants off someone else's reservation by id.
+   */
+  async removeCurrentStayGuest(
+    userId: string,
+    email: string | null | undefined,
+    guestId: string,
+  ) {
+    const stay = await this.currentStay(userId, email);
+    if (!stay) {
+      throw new NotFoundException('No active stay');
+    }
+    const guest = await this.prisma.bookingGuest.findUnique({
+      where: { id: guestId },
+      select: { id: true, bookingId: true, isPrimary: true },
+    });
+    if (!guest || guest.bookingId !== stay.id) {
+      throw new NotFoundException('Guest not found');
+    }
+    if (guest.isPrimary) {
+      throw new BadRequestException('The primary guest cannot be removed');
+    }
+    await this.prisma.bookingGuest.delete({ where: { id: guestId } });
+    return { success: true };
+  }
+
   private toCurrentStaySummary(b: {
     id: string;
     reference: string;

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -38,6 +39,7 @@ import {
   CheckInSubmitDto,
   CheckInVerifyDto,
 } from './check-in.dto';
+import { AddStayGuestDto } from './stay-guest.dto';
 import {
   CheckOutOtpRequestDto,
   CheckOutOtpVerifyDto,
@@ -326,6 +328,30 @@ export class BookingsController {
     @CurrentUser('email') email: string | null,
   ) {
     return this.service.currentStayGuests(userId, email);
+  }
+
+  /** Add an additional guest to the signed-in user's current stay. */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('me/current-stay/guests')
+  addCurrentStayGuest(
+    @Body() dto: AddStayGuestDto,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('email') email: string | null,
+  ) {
+    return this.service.addCurrentStayGuest(userId, email, dto);
+  }
+
+  /** Remove an additional guest from the signed-in user's current stay. */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Delete('me/current-stay/guests/:id')
+  removeCurrentStayGuest(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('email') email: string | null,
+  ) {
+    return this.service.removeCurrentStayGuest(userId, email, id);
   }
 
   @ApiBearerAuth()
