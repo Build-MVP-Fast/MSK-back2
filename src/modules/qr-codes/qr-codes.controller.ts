@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@n
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { QrCodeTarget, UserRole } from '@prisma/client';
 
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuthenticatedUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -19,16 +19,21 @@ export class QrCodesController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Get()
-  list(@Query() q: { propertyId?: string; target?: QrCodeTarget }) {
-    return this.service.list(q);
+  list(
+    @Query() q: { propertyId?: string; target?: QrCodeTarget },
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    // SUPER_USER (platform) sees everything; ADMIN is scoped to their company.
+    const companyId = user.role === UserRole.SUPER_USER ? undefined : user.companyId;
+    return this.service.list({ ...q, companyId });
   }
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Post()
-  generate(@Body() dto: any) {
-    return this.service.generate(dto);
+  generate(@Body() dto: any, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.generate({ ...dto, companyId: dto.companyId ?? user.companyId });
   }
 
   /** The signed-in staff/operator's own personal QR (get-or-create). */

@@ -9,9 +9,11 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 export class QrCodesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(filter: { propertyId?: string; target?: QrCodeTarget } = {}) {
+  /** List QR codes, scoped to the caller's company (tenant isolation). */
+  list(filter: { companyId?: string | null; propertyId?: string; target?: QrCodeTarget } = {}) {
     return this.prisma.qrCode.findMany({
       where: {
+        ...(filter.companyId && { companyId: filter.companyId }),
         ...(filter.propertyId && { propertyId: filter.propertyId }),
         ...(filter.target && { target: filter.target }),
       },
@@ -21,10 +23,11 @@ export class QrCodesService {
 
   /**
    * Generate a QR code with a unique short code, plus a base64 PNG image.
-   * The image can be uploaded to storage by callers if persistence is required.
+   * Stamps the owning company so it shows only in that operator's list.
    */
   async generate(dto: {
     target: QrCodeTarget;
+    companyId?: string | null;
     propertyId?: string;
     roomId?: string;
     payload?: any;
@@ -35,6 +38,7 @@ export class QrCodesService {
       data: {
         code,
         target: dto.target,
+        companyId: dto.companyId ?? undefined,
         propertyId: dto.propertyId,
         roomId: dto.roomId,
         payload: dto.payload,
@@ -67,6 +71,7 @@ export class QrCodesService {
         data: {
           code: nanoid(10),
           target: QrCodeTarget.STAFF,
+          companyId: user.companyId ?? undefined,
           payload: { staffId: userId, staffName },
         },
       });

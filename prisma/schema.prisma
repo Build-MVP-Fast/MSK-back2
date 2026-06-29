@@ -1428,6 +1428,9 @@ model QrCode {
   id          String       @id @default(uuid())
   code        String       @unique
   target      QrCodeTarget
+  // Owning company — used to scope the operator's QR list to their own
+  // tenant. Nullable so legacy rows + non-tenant codes stay valid.
+  companyId   String?
   propertyId  String?
   property    Property?    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   roomId      String?
@@ -1439,6 +1442,8 @@ model QrCode {
   updatedAt   DateTime     @updatedAt
 
   scans QrScan[]
+
+  @@index([companyId])
 }
 
 model QrScan {
