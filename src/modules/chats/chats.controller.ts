@@ -1,9 +1,22 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { ChatType } from '@prisma/client';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { StorageService } from '../photos/storage.service';
 
 import { ChatsService } from './chats.service';
 
@@ -12,7 +25,25 @@ import { ChatsService } from './chats.service';
 @UseGuards(JwtAuthGuard)
 @Controller('chats')
 export class ChatsController {
-  constructor(private readonly service: ChatsService) {}
+  constructor(
+    private readonly service: ChatsService,
+    private readonly storage: StorageService,
+  ) {}
+
+  /** Upload a chat attachment (image) and get back its URL. The client then
+   *  sends a message carrying that attachmentUrl. */
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  @Post('upload')
+  async uploadAttachment(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('File is required');
+    const stored = await this.storage.upload(
+      file.buffer,
+      file.mimetype || 'application/octet-stream',
+      'chat-attachments',
+    );
+    return { url: stored.url, type: file.mimetype };
+  }
 
   @Get()
   list(@CurrentUser('id') userId: string, @Query('type') type?: ChatType) {
