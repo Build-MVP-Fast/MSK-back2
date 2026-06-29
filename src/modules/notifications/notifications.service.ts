@@ -11,6 +11,12 @@ interface SendNotificationInput {
   title: string;
   body?: string;
   data?: Record<string, unknown>;
+  /**
+   * When set, collapse into a single notification per (user, collapseKey)
+   * instead of creating a new row each time — e.g. one entry per chat that
+   * updates in place. Keeps the notification list short and professional.
+   */
+  collapseKey?: string;
 }
 
 @Injectable()
@@ -22,15 +28,45 @@ export class NotificationsService {
   ) {}
 
   async send(input: SendNotificationInput) {
-    const notification = await this.prisma.notification.create({
-      data: {
-        userId: input.userId,
-        channel: input.channel,
-        title: input.title,
-        body: input.body,
-        data: input.data as any,
-      },
-    });
+    const data = input.collapseKey
+      ? { ...(input.data ?? {}), collapseKey: input.collapseKey }
+      : input.data;
+
+    // Collapse: reuse the existing notification for this (user, collapseKey)
+    // — update its content, mark it unread again, and float it to the top —
+    // so a busy chat is one entry, not one per message.
+    const existing = input.collapseKey
+      ? await this.prisma.notification.findFirst({
+          where: {
+            userId: input.userId,
+            data: { path: ['collapseKey'], equals: input.collapseKey },
+          },
+          orderBy: { createdAt: 'desc' },
+        })
+      : null;
+
+    const notification = existing
+      ? await this.prisma.notification.update({
+          where: { id: existing.id },
+          data: {
+            title: input.title,
+            body: input.body,
+            data: data as any,
+            status: NotificationStatus.PENDING,
+            readAt: null,
+            sentAt: null,
+            createdAt: new Date(),
+          },
+        })
+      : await this.prisma.notification.create({
+          data: {
+            userId: input.userId,
+            channel: input.channel,
+            title: input.title,
+            body: input.body,
+            data: data as any,
+          },
+        });
 
     try {
       if (input.channel === NotificationChannel.PUSH) {

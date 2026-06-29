@@ -266,6 +266,8 @@ export class ChatsService {
             title: senderName,
             body: preview,
             data: { chatId: dto.chatId, kind: 'chat' },
+            // One collapsed notification per chat (not one per message).
+            collapseKey: `chat:${dto.chatId}`,
           }),
         ),
       );
