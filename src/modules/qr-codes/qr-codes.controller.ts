@@ -31,6 +31,15 @@ export class QrCodesController {
     return this.service.generate(dto);
   }
 
+  /** The signed-in staff/operator's own personal QR (get-or-create). */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.STAFF, UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST, UserRole.SUPERVISOR)
+  @Get('me/staff')
+  myStaffQr(@CurrentUser('id') userId: string) {
+    return this.service.getOrCreateMyStaffQr(userId);
+  }
+
   @Public()
   @Get('resolve/:code')
   resolve(@Param('code') code: string) {

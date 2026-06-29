@@ -43,6 +43,38 @@ export class QrCodesService {
     return { ...record, dataUrl };
   }
 
+  /**
+   * Get-or-create the calling user's personal STAFF QR code (so a guest can
+   * scan it to leave a review about that staff member). Idempotent — one per
+   * user, matched by payload.staffId. Returns the record + a fresh PNG.
+   */
+  async getOrCreateMyStaffQr(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, fullName: true, firstName: true, lastName: true, companyId: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    const staffName =
+      user.fullName?.trim() ||
+      [user.firstName, user.lastName].filter(Boolean).join(' ').trim() ||
+      'Staff';
+
+    let record = await this.prisma.qrCode.findFirst({
+      where: { target: QrCodeTarget.STAFF, payload: { path: ['staffId'], equals: userId } },
+    });
+    if (!record) {
+      record = await this.prisma.qrCode.create({
+        data: {
+          code: nanoid(10),
+          target: QrCodeTarget.STAFF,
+          payload: { staffId: userId, staffName },
+        },
+      });
+    }
+    const dataUrl = await QRCode.toDataURL(record.code, { margin: 1, width: 512 });
+    return { ...record, dataUrl };
+  }
+
   async resolve(code: string) {
     const record = await this.prisma.qrCode.findUnique({
       where: { code },
