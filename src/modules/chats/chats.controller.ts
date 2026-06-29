@@ -58,6 +58,15 @@ export class ChatsController {
     return this.service.listDepartmentChats(departmentId, userId);
   }
 
+  /** Get-or-create the department's group chat and return it. */
+  @Post('department/:departmentId/open')
+  openDepartmentChat(
+    @Param('departmentId') departmentId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.service.openDepartmentChat(userId, departmentId);
+  }
+
   @Get('supplier')
   supplierChats(@CurrentUser('id') userId: string) {
     return this.service.listSupplierChats(userId);

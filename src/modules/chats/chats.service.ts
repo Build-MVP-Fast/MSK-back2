@@ -335,6 +335,55 @@ export class ChatsService {
     });
   }
 
+  /**
+   * Get-or-create the DEPARTMENT chat for a department, adding the caller +
+   * every department member. Idempotent (one chat per department). Tenant-
+   * safe: the caller must belong to the department's company.
+   */
+  async openDepartmentChat(userId: string, departmentId: string) {
+    const dept = await this.prisma.department.findUnique({
+      where: { id: departmentId },
+      select: { id: true, name: true, companyId: true },
+    });
+    if (!dept) throw new NotFoundException('Department not found');
+    const caller = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { companyId: true },
+    });
+    if (!caller?.companyId || caller.companyId !== dept.companyId) {
+      throw new ForbiddenException('You cannot open this department chat');
+    }
+
+    const members = await this.prisma.departmentMember.findMany({
+      where: { departmentId },
+      select: { userId: true },
+    });
+    const memberIds = [userId, ...members.map((m) => m.userId)];
+
+    const existing = await this.prisma.chat.findFirst({
+      where: { type: ChatType.DEPARTMENT, departmentId },
+      select: { id: true },
+    });
+    if (existing) {
+      await this.addMembersToChat(existing.id, memberIds);
+      return this.detailRaw(existing.id);
+    }
+    const chat = await this.prisma.chat.create({
+      data: {
+        type: ChatType.DEPARTMENT,
+        title: dept.name,
+        departmentId,
+        members: {
+          create: [...new Set(memberIds)].map((uid) => ({
+            userId: uid,
+            role: uid === userId ? 'owner' : 'member',
+          })),
+        },
+      },
+    });
+    return this.detailRaw(chat.id);
+  }
+
   /** List supplier chats (staff <-> supplier). */
   listSupplierChats(userId: string) {
     return this.prisma.chat.findMany({
