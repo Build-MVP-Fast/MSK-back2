@@ -32,18 +32,26 @@ export class NotificationsService {
       ? { ...(input.data ?? {}), collapseKey: input.collapseKey }
       : input.data;
 
-    // Collapse: reuse the existing notification for this (user, collapseKey)
-    // — update its content, mark it unread again, and float it to the top —
-    // so a busy chat is one entry, not one per message.
-    const existing = input.collapseKey
-      ? await this.prisma.notification.findFirst({
-          where: {
-            userId: input.userId,
-            data: { path: ['collapseKey'], equals: input.collapseKey },
-          },
-          orderBy: { createdAt: 'desc' },
-        })
+    // Collapse: reuse the existing notification for this conversation — update
+    // its content, mark it unread again, and float it to the top — so a busy
+    // chat is one entry, not one per message. For chat we match on chatId so
+    // older per-message rows get absorbed too.
+    const matchWhere = input.collapseKey
+      ? input.data?.kind === 'chat' && input.data?.chatId
+        ? { userId: input.userId, data: { path: ['chatId'], equals: input.data.chatId as string } }
+        : { userId: input.userId, data: { path: ['collapseKey'], equals: input.collapseKey } }
       : null;
+
+    const existing = matchWhere
+      ? await this.prisma.notification.findFirst({ where: matchWhere, orderBy: { createdAt: 'desc' } })
+      : null;
+
+    // Drop any other rows for the same conversation so it stays a single entry.
+    if (matchWhere && existing) {
+      await this.prisma.notification.deleteMany({
+        where: { ...matchWhere, id: { not: existing.id } },
+      });
+    }
 
     const notification = existing
       ? await this.prisma.notification.update({
