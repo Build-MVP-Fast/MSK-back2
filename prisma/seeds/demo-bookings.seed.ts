@@ -22,6 +22,7 @@ import {
   PropertyStatus,
   RoomStatus,
 } from '@prisma/client';
+import * as argon2 from 'argon2';
 
 const prisma = new PrismaClient();
 
@@ -129,6 +130,92 @@ async function main() {
     },
   });
 
+  // 5b. Property team — operator + staff + supplier, so chat is testable
+  //     across roles. All APP lane, password "demo1234".
+  const pwHash = await argon2.hash('demo1234');
+  const teamPassword = {
+    accountKind: AccountKind.APP,
+    authProvider: AuthProvider.PASSWORD,
+    isActive: true,
+    emailVerified: true,
+  };
+
+  const operator = await prisma.user.upsert({
+    where: { User_email_role_key: { email: 'operator@demo.local', role: UserRole.ADMIN } },
+    update: { isActive: true, companyId: company.id },
+    create: {
+      email: 'operator@demo.local',
+      firstName: 'Olivia',
+      lastName: 'Operator',
+      fullName: 'Olivia Operator',
+      role: UserRole.ADMIN,
+      primaryRole: UserRole.ADMIN,
+      companyId: company.id,
+      ...teamPassword,
+      credentials: { create: { provider: AuthProvider.PASSWORD, secretHash: pwHash } },
+    },
+  });
+
+  const staff = await prisma.user.upsert({
+    where: { User_email_role_key: { email: 'staff@demo.local', role: UserRole.STAFF } },
+    update: { isActive: true, companyId: company.id },
+    create: {
+      email: 'staff@demo.local',
+      firstName: 'Sam',
+      lastName: 'Staff',
+      fullName: 'Sam Staff',
+      role: UserRole.STAFF,
+      primaryRole: UserRole.STAFF,
+      companyId: company.id,
+      ...teamPassword,
+      staffProfile: { create: { position: 'Housekeeping' } },
+      credentials: { create: { provider: AuthProvider.PASSWORD, secretHash: pwHash } },
+    },
+  });
+
+  const supplier = await prisma.user.upsert({
+    where: { User_email_role_key: { email: 'supplier@demo.local', role: UserRole.SUPPLIER } },
+    update: { isActive: true },
+    create: {
+      email: 'supplier@demo.local',
+      firstName: 'Riley',
+      lastName: 'Supplier',
+      fullName: 'Riley Supplier',
+      role: UserRole.SUPPLIER,
+      primaryRole: UserRole.SUPPLIER,
+      ...teamPassword,
+      supplierProfile: { create: { companyName: 'Demo Supplies Ltd' } },
+      credentials: { create: { provider: AuthProvider.PASSWORD, secretHash: pwHash } },
+    },
+  });
+
+  // Housekeeping department (matches the guest "Housekeeping" category) with
+  // the staff member as a head, so guest category routing has a dept to hit.
+  const department = await prisma.department.upsert({
+    where: { companyId_slug: { companyId: company.id, slug: 'housekeeping' } },
+    update: {},
+    create: { companyId: company.id, name: 'Housekeeping', slug: 'housekeeping' },
+  });
+  await prisma.departmentMember.upsert({
+    where: { departmentId_userId: { departmentId: department.id, userId: staff.id } },
+    update: {},
+    create: { departmentId: department.id, userId: staff.id, isHead: true },
+  });
+
+  // An order linking the supplier to the operator, so the supplier's chat
+  // contact list surfaces the operator (supplier-initiated DM).
+  await prisma.order.upsert({
+    where: { number: 'ORD-DEMO-0001' },
+    update: {},
+    create: {
+      number: 'ORD-DEMO-0001',
+      supplierId: supplier.id,
+      createdById: operator.id,
+      totalAmount: new Prisma.Decimal('100.00'),
+      currency: 'GBP',
+    },
+  });
+
   // 6. Bookings — one per Guest Home state. Linked by both guestUserId
   //    and guestEmail so currentStay() surfaces them either way.
   const guestLink = {
@@ -204,8 +291,11 @@ async function main() {
     console.log(`  ${b.reference}  status=${b.status}  check-in code=${b.checkInCode}`);
   }
 
-  console.log('\nDemo guest: guest@demo.local');
-  console.log('Sign in with check-in code 100001 (active stay) or email OTP.');
+  console.log('\nDemo guest: guest@demo.local — check-in code 100001 (or email OTP).');
+  console.log('Demo team (email + password "demo1234", APP lane):');
+  console.log('  operator@demo.local  (Property Operator / ADMIN)');
+  console.log('  staff@demo.local     (Staff, Housekeeping dept)');
+  console.log('  supplier@demo.local  (Supplier)');
   console.log('Done.');
 }
 
