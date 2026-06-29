@@ -20,13 +20,22 @@ export class ChatsController {
   }
 
   @Get('department/:departmentId')
-  departmentChats(@Param('departmentId') departmentId: string) {
-    return this.service.listDepartmentChats(departmentId);
+  departmentChats(
+    @Param('departmentId') departmentId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.service.listDepartmentChats(departmentId, userId);
   }
 
   @Get('supplier')
   supplierChats(@CurrentUser('id') userId: string) {
     return this.service.listSupplierChats(userId);
+  }
+
+  /** People the caller may start a new chat with (role-aware, tenant-scoped). */
+  @Get('contacts')
+  contacts(@CurrentUser('id') userId: string) {
+    return this.service.contacts(userId);
   }
 
   @Get('guest/categories')
@@ -35,13 +44,18 @@ export class ChatsController {
   }
 
   @Get(':id')
-  detail(@Param('id') id: string) {
-    return this.service.detail(id);
+  detail(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.service.detail(id, userId);
   }
 
   @Get(':id/messages')
-  messages(@Param('id') id: string, @Query('before') before?: string, @Query('limit') limit?: number) {
-    return this.service.messages(id, {
+  messages(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @Query('before') before?: string,
+    @Query('limit') limit?: number,
+  ) {
+    return this.service.messages(id, userId, {
       before: before ? new Date(before) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
@@ -49,7 +63,7 @@ export class ChatsController {
 
   @Post(':id/messages')
   send(@Param('id') chatId: string, @Body() dto: any, @CurrentUser('id') userId: string) {
-    return this.service.sendMessage({ ...dto, chatId, senderId: userId });
+    return this.service.sendAsUser(chatId, userId, dto);
   }
 
   @Post(':id/read')
@@ -78,12 +92,16 @@ export class ChatsController {
   }
 
   @Post('group')
-  createGroup(@Body() dto: any) {
-    return this.service.createGroup(dto);
+  createGroup(@Body() dto: any, @CurrentUser('id') creatorId: string) {
+    return this.service.createGroup(creatorId, dto);
   }
 
   @Post(':id/members/:userId')
-  addMember(@Param('id') chatId: string, @Param('userId') userId: string) {
-    return this.service.addMember(chatId, userId);
+  addMember(
+    @Param('id') chatId: string,
+    @Param('userId') userId: string,
+    @CurrentUser('id') callerId: string,
+  ) {
+    return this.service.addMember(chatId, callerId, userId);
   }
 }

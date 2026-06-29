@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { ChatMessageType, ChatType, NotificationChannel, Prisma } from '@prisma/client';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BookingStatus, ChatMessageType, ChatType, NotificationChannel, UserRole } from '@prisma/client';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -10,6 +10,45 @@ export class ChatsService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
   ) {}
+
+  // ── Authorization helpers ────────────────────────────────────────────
+
+  /** True if the user is an active (not-left) member of the chat. */
+  private async isMember(chatId: string, userId: string): Promise<boolean> {
+    const member = await this.prisma.chatMember.findFirst({
+      where: { chatId, userId, leftAt: null },
+      select: { id: true },
+    });
+    return !!member;
+  }
+
+  /** Throw unless the caller is an active member of the chat — the single
+   *  gate that stops a user reading or posting to a chat they don't belong
+   *  to (chats are otherwise addressable by raw id). */
+  private async assertMember(chatId: string, userId: string): Promise<void> {
+    if (!(await this.isMember(chatId, userId))) {
+      throw new ForbiddenException('You are not a member of this chat');
+    }
+  }
+
+  /** Upsert a set of users as active members of a chat (idempotent —
+   *  re-adds anyone who previously left). Skips falsy / duplicate ids. */
+  private async addMembersToChat(
+    chatId: string,
+    userIds: string[],
+    role: string = 'member',
+  ): Promise<void> {
+    const unique = [...new Set(userIds.filter(Boolean))];
+    await Promise.all(
+      unique.map((userId) =>
+        this.prisma.chatMember.upsert({
+          where: { chatId_userId: { chatId, userId } },
+          create: { chatId, userId, role },
+          update: { leftAt: null },
+        }),
+      ),
+    );
+  }
 
   /** List the chats a user is a member of, grouped by type. */
   async listForUser(userId: string, type?: ChatType) {
@@ -27,7 +66,8 @@ export class ChatsService {
     });
   }
 
-  async detail(chatId: string) {
+  async detail(chatId: string, userId: string) {
+    await this.assertMember(chatId, userId);
     const chat = await this.prisma.chat.findUnique({
       where: { id: chatId },
       include: { members: { include: { user: true } } },
@@ -36,8 +76,9 @@ export class ChatsService {
     return chat;
   }
 
-  /** Paginated message history. */
-  messages(chatId: string, opts: { before?: Date; limit?: number } = {}) {
+  /** Paginated message history. Caller must be a member of the chat. */
+  async messages(chatId: string, userId: string, opts: { before?: Date; limit?: number } = {}) {
+    await this.assertMember(chatId, userId);
     return this.prisma.chatMessage.findMany({
       where: {
         chatId,
@@ -49,8 +90,90 @@ export class ChatsService {
     });
   }
 
-  /** Create or get a 1-1 direct chat between two users. */
+  // ── Contact discovery (who a role may start a chat with) ─────────────
+
+  /**
+   * The set of user-ids the caller is allowed to open a direct chat with,
+   * enforcing the role matrix + tenant isolation:
+   *   - ADMIN (operator): staff in their company + all active suppliers.
+   *   - STAFF: operators + fellow staff in the same company.
+   *   - SUPPLIER: operators they're linked to via orders.
+   *   - others (guest): none (guests use category chats only).
+   */
+  private async contactIdsFor(caller: { id: string; role: UserRole; companyId: string | null }): Promise<Set<string>> {
+    const ids = new Set<string>();
+    if (caller.role === UserRole.ADMIN) {
+      if (caller.companyId) {
+        const staff = await this.prisma.user.findMany({
+          where: { companyId: caller.companyId, role: UserRole.STAFF, isActive: true },
+          select: { id: true },
+        });
+        staff.forEach((u) => ids.add(u.id));
+      }
+      const suppliers = await this.prisma.user.findMany({
+        where: { role: UserRole.SUPPLIER, isActive: true },
+        select: { id: true },
+      });
+      suppliers.forEach((u) => ids.add(u.id));
+    } else if (caller.role === UserRole.STAFF) {
+      if (caller.companyId) {
+        const team = await this.prisma.user.findMany({
+          where: {
+            companyId: caller.companyId,
+            role: { in: [UserRole.ADMIN, UserRole.STAFF] },
+            isActive: true,
+          },
+          select: { id: true },
+        });
+        team.forEach((u) => ids.add(u.id));
+      }
+    } else if (caller.role === UserRole.SUPPLIER) {
+      const orders = await this.prisma.order.findMany({
+        where: { supplierId: caller.id, createdById: { not: null } },
+        select: { createdById: true },
+        distinct: ['createdById'],
+      });
+      const operatorIds = orders.map((o) => o.createdById!).filter(Boolean);
+      if (operatorIds.length) {
+        const operators = await this.prisma.user.findMany({
+          where: { id: { in: operatorIds }, role: UserRole.ADMIN, isActive: true },
+          select: { id: true },
+        });
+        operators.forEach((u) => ids.add(u.id));
+      }
+    }
+    ids.delete(caller.id);
+    return ids;
+  }
+
+  /** Full contact objects for the "new chat" picker. */
+  async contacts(userId: string) {
+    const caller = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, companyId: true },
+    });
+    if (!caller) throw new NotFoundException('User not found');
+    const ids = await this.contactIdsFor(caller);
+    if (!ids.size) return [];
+    return this.prisma.user.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true, fullName: true, firstName: true, lastName: true, role: true, avatarUrl: true },
+      orderBy: { fullName: 'asc' },
+    });
+  }
+
+  /** Create or get a 1-1 direct chat between two users. The caller may only
+   *  open a direct chat with someone in their allowed contact set. */
   async getOrCreateDirect(userIdA: string, userIdB: string) {
+    const caller = await this.prisma.user.findUnique({
+      where: { id: userIdA },
+      select: { id: true, role: true, companyId: true },
+    });
+    if (!caller) throw new NotFoundException('User not found');
+    const allowed = await this.contactIdsFor(caller);
+    if (!allowed.has(userIdB)) {
+      throw new ForbiddenException('You cannot start a chat with this user');
+    }
     const existing = await this.prisma.chat.findFirst({
       where: {
         type: ChatType.DIRECT,
@@ -71,14 +194,21 @@ export class ChatsService {
     });
   }
 
-  createGroup(dto: {
-    title?: string;
-    type: ChatType;
-    departmentId?: string;
-    propertyId?: string;
-    category?: string;
-    memberIds: string[];
-  }) {
+  /** Create a GROUP / DEPARTMENT / SUPPLIER chat. The creator is always
+   *  added (as owner) so they can see and post to it, alongside the picked
+   *  members. */
+  async createGroup(
+    creatorId: string,
+    dto: {
+      title?: string;
+      type: ChatType;
+      departmentId?: string;
+      propertyId?: string;
+      category?: string;
+      memberIds: string[];
+    },
+  ) {
+    const memberIds = [...new Set([creatorId, ...(dto.memberIds ?? [])].filter(Boolean))];
     return this.prisma.chat.create({
       data: {
         type: dto.type,
@@ -86,7 +216,12 @@ export class ChatsService {
         departmentId: dto.departmentId,
         propertyId: dto.propertyId,
         category: dto.category,
-        members: { create: dto.memberIds.map((userId) => ({ userId })) },
+        members: {
+          create: memberIds.map((userId) => ({
+            userId,
+            role: userId === creatorId ? 'owner' : 'member',
+          })),
+        },
       },
       include: { members: true },
     });
@@ -139,14 +274,28 @@ export class ChatsService {
     return message;
   }
 
-  markRead(chatId: string, userId: string) {
+  /** REST entry point for sending: enforces that the sender belongs to the
+   *  chat before delegating to the shared sendMessage. */
+  async sendAsUser(
+    chatId: string,
+    userId: string,
+    dto: { type?: ChatMessageType; body?: string; attachmentUrl?: string; attachmentType?: string; replyToId?: string },
+  ) {
+    await this.assertMember(chatId, userId);
+    return this.sendMessage({ ...dto, chatId, senderId: userId });
+  }
+
+  async markRead(chatId: string, userId: string) {
+    await this.assertMember(chatId, userId);
     return this.prisma.chatMember.update({
       where: { chatId_userId: { chatId, userId } },
       data: { lastReadAt: new Date() },
     });
   }
 
-  addMember(chatId: string, userId: string) {
+  /** Add a member to a chat. Only an existing member may add others. */
+  async addMember(chatId: string, callerId: string, userId: string) {
+    await this.assertMember(chatId, callerId);
     return this.prisma.chatMember.upsert({
       where: { chatId_userId: { chatId, userId } },
       create: { chatId, userId },
@@ -165,8 +314,21 @@ export class ChatsService {
     return this.prisma.chat.update({ where: { id: chatId }, data: { isArchived: true } });
   }
 
-  /** List department chats (used by app's department-chats screen). */
-  listDepartmentChats(departmentId: string) {
+  /** List department chats for a department, but only if the caller belongs
+   *  to that department's company (tenant isolation). */
+  async listDepartmentChats(departmentId: string, userId: string) {
+    const department = await this.prisma.department.findUnique({
+      where: { id: departmentId },
+      select: { companyId: true },
+    });
+    if (!department) throw new NotFoundException('Department not found');
+    const caller = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { companyId: true },
+    });
+    if (!caller?.companyId || caller.companyId !== department.companyId) {
+      throw new ForbiddenException('You cannot view this department');
+    }
     return this.prisma.chat.findMany({
       where: { type: ChatType.DEPARTMENT, departmentId },
       include: { members: { include: { user: true } } },
@@ -247,15 +409,86 @@ export class ChatsService {
       },
       include: { members: { include: { user: true } } },
     });
-    if (existing) return existing;
-    return this.prisma.chat.create({
+    if (existing) {
+      // Heal older / pre-routing chats that only have the guest: make sure
+      // the property team is attached so the message is actually received.
+      const hasStaff = existing.members.some((m) => m.userId !== userId && !m.leftAt);
+      if (!hasStaff) await this.routeGuestCategoryChat(existing.id, userId, trimmed);
+      return this.detailRaw(existing.id);
+    }
+    const chat = await this.prisma.chat.create({
       data: {
         type: ChatType.STAFF_GUEST,
         title: trimmed,
         category: trimmed,
         members: { create: { userId, role: 'owner' } },
       },
+    });
+    await this.routeGuestCategoryChat(chat.id, userId, trimmed);
+    return this.detailRaw(chat.id);
+  }
+
+  /** Fetch a chat with members regardless of caller (internal use, after
+   *  we've already established the caller's relationship). */
+  private detailRaw(chatId: string) {
+    return this.prisma.chat.findUnique({
+      where: { id: chatId },
       include: { members: { include: { user: true } } },
     });
+  }
+
+  /**
+   * Connect a guest category chat to the right property team so it isn't a
+   * dead-end. Resolves the guest's current/most-relevant booking → property
+   * → company, then adds:
+   *   - every active Property Operator (ADMIN) of that company (always — the
+   *     guaranteed recipient), and
+   *   - staff of a Department whose name matches the category, if one exists.
+   * Also stamps the chat's propertyId for context. Tenant-safe: only users
+   * of the guest's own property's company are ever added.
+   */
+  private async routeGuestCategoryChat(chatId: string, guestUserId: string, category: string) {
+    const guest = await this.prisma.user.findUnique({
+      where: { id: guestUserId },
+      select: { email: true },
+    });
+    const booking = await this.prisma.booking.findFirst({
+      where: {
+        OR: [
+          { guestUserId },
+          ...(guest?.email ? [{ guestEmail: guest.email }] : []),
+        ],
+        status: { notIn: [BookingStatus.CANCELLED, BookingStatus.NO_SHOW] },
+      },
+      orderBy: [{ checkedInAt: 'desc' }, { checkIn: 'desc' }],
+      select: { propertyId: true, property: { select: { companyId: true } } },
+    });
+    if (!booking?.property?.companyId) return; // no property yet → leave as-is
+    const companyId = booking.property.companyId;
+
+    const operators = await this.prisma.user.findMany({
+      where: { role: UserRole.ADMIN, companyId, isActive: true },
+      select: { id: true },
+    });
+
+    const department = await this.prisma.department.findFirst({
+      where: { companyId, name: { equals: category, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    const deptStaff = department
+      ? await this.prisma.departmentMember.findMany({
+          where: { departmentId: department.id },
+          select: { userId: true },
+        })
+      : [];
+
+    const memberIds = [...operators.map((o) => o.id), ...deptStaff.map((d) => d.userId)];
+    if (memberIds.length) await this.addMembersToChat(chatId, memberIds);
+    if (booking.propertyId) {
+      await this.prisma.chat.update({
+        where: { id: chatId },
+        data: { propertyId: booking.propertyId },
+      });
+    }
   }
 }
