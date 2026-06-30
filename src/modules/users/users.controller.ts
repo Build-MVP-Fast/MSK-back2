@@ -118,6 +118,18 @@ export class UsersController {
     return this.service.uploadGuestDocument(userId, kind, file);
   }
 
+  /**
+   * Self-service account deletion. Any authenticated user may soft-delete
+   * their OWN account (sets isActive=false + deletedAt); they're signed
+   * out immediately and can no longer log in. No @Roles — every role can
+   * remove their own account. Declared before @Delete(':id') so the
+   * literal "me" segment isn't captured as an :id param.
+   */
+  @Delete('me')
+  deleteMe(@CurrentUser('id') userId: string) {
+    return this.service.deactivate(userId);
+  }
+
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
   @Get(':id')
   detail(@Param('id') id: string) {
