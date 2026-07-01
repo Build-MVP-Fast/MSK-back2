@@ -205,7 +205,7 @@ export class AuthService {
       : {};
     const user = looksLikeEmail
       ? await this.prisma.user.findFirst({
-          where: { email: identifier, ...roleFilter },
+          where: { email: { equals: identifier, mode: 'insensitive' }, ...roleFilter },
           include: { credentials: true },
         })
       : await this.prisma.user.findFirst({
@@ -355,12 +355,16 @@ export class AuthService {
   async registerStaff(dto: RegisterStaffDto) {
     const roleStr = dto.role ?? 'STAFF';
     const role = UserRole[roleStr as keyof typeof UserRole];
+    // Normalise email to lowercase so a keyboard auto-capitalising the first
+    // letter at signup can't lock the user out at login. Login matches
+    // case-insensitively, so existing mixed-case rows stay reachable too.
+    const email = dto.email.trim().toLowerCase();
     // Multi-role identity: scope the dup check to (email, role) so the
     // same human can hold a Supplier and a Staff and an Operator
     // account under the same email. Reject only if the (email, role)
     // combination already exists.
     const existing = await this.prisma.user.findFirst({
-      where: { email: dto.email, role },
+      where: { email, role },
     });
     if (existing) {
       throw new BadRequestException(
@@ -439,7 +443,7 @@ export class AuthService {
     try {
       const user = await this.prisma.user.create({
         data: {
-          email: dto.email,
+          email,
           phone: dto.phone,
           firstName: dto.firstName,
           lastName: dto.lastName,

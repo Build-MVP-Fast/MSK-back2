@@ -138,8 +138,9 @@ export class UsersService {
    * never echoed back when the admin supplied their own password.
    */
   async createStaff(dto: CreateUserDto & { companyId?: string; accountKind?: AccountKind }): Promise<CreateStaffResult> {
+    const email = dto.email.trim().toLowerCase();
     const existing = await this.prisma.user.findFirst({
-      where: { email: dto.email },
+      where: { email: { equals: email, mode: 'insensitive' } },
       include: { credentials: true },
     });
     // Only reject when there's a *live* account on this email. A
@@ -192,7 +193,7 @@ export class UsersService {
     } else {
       user = await this.prisma.user.create({
         data: {
-          email: dto.email,
+          email,
           firstName: dto.firstName,
           lastName: dto.lastName,
           fullName: `${dto.firstName} ${dto.lastName}`.trim(),
