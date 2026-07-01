@@ -108,10 +108,15 @@ export class PropertiesService {
 
   create(dto: CreatePropertyDto & { companyId: string }) {
     const { metadata, ...rest } = dto;
+    // Property.slug is globally unique. Auto-generated slugs get a short random
+    // suffix (same approach as the company slug) so two properties with the
+    // same name never collide — that collision was throwing a 500 during
+    // Property-Operator onboarding. An explicitly-passed slug is left as-is.
+    const slug = rest.slug ?? `${slugify(rest.name) || 'property'}-${Math.random().toString(36).slice(2, 8)}`;
     return this.prisma.property.create({
       data: {
         ...rest,
-        slug: rest.slug ?? slugify(rest.name),
+        slug,
         ...(metadata !== undefined ? { metadata: metadata as JsonInput } : {}),
       },
     });
