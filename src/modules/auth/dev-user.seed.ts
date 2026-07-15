@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AuthProvider, UserRole } from '@prisma/client';
+import { AccountKind, AuthProvider, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -64,6 +64,9 @@ export class DevUserSeed implements OnApplicationBootstrap {
           fullName: `${firstName} ${lastName}`.trim(),
           role: UserRole.SUPER_USER,
           primaryRole: UserRole.SUPER_USER,
+          // msk-admin is the PLATFORM lane — email login is gated on this, and
+          // it must be PLATFORM for the account to behave as an admin user.
+          accountKind: AccountKind.PLATFORM,
           authProvider: AuthProvider.PIN,
           emailVerified: true,
           isActive: true,
@@ -89,23 +92,26 @@ export class DevUserSeed implements OnApplicationBootstrap {
       data: {
         role: UserRole.SUPER_USER,
         primaryRole: UserRole.SUPER_USER,
+        accountKind: AccountKind.PLATFORM,
         isActive: true,
         emailVerified: true,
         deletedAt: null,
       },
     });
 
-    if (existing.credentials.length > 0) {
-      return;
-    }
-
-    await this.prisma.userCredential.create({
-      data: {
+    // Keep the PIN in sync with the env value so rotating DEV_USER_PIN and
+    // redeploying always works — this is an env-controlled dev account.
+    await this.prisma.userCredential.upsert({
+      where: {
+        userId_provider: { userId: existing.id, provider: AuthProvider.PIN },
+      },
+      update: { secretHash },
+      create: {
         userId: existing.id,
         provider: AuthProvider.PIN,
         secretHash,
       },
     });
-    this.logger.log(`Added PIN credential to existing dev user ${email}`);
+    this.logger.log(`Synced dev SUPER_USER ${email} (PIN + PLATFORM)`);
   }
 }
