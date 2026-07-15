@@ -1799,6 +1799,28 @@ model SiteContent {
   @@index([group])
 }
 
+// Marketing content for the website's Mews-backed properties. Bookings,
+// availability and pricing come live from Mews; this holds the photos and
+// text the client manages from the admin, keyed by the Mews property slug
+// (and, for room-level overrides, by the Mews room-category id inside `rooms`).
+model PropertyContent {
+  id          String   @id @default(cuid())
+  slug        String   @unique // Mews property slug, e.g. "msk-elite"
+  name        String   @default("")
+  location    String   @default("")
+  tagline     String   @default("")
+  description String   @default("") @db.Text
+  heroImage   String   @default("")
+  images      Json? // string[] gallery
+  rooms       Json? // { [mewsRoomCategoryId]: { images: string[]; description?: string } }
+  ordering    Int      @default(0)
+  isPublished Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  @@index([ordering])
+}
+
 model Faq {
   id          String   @id @default(cuid())
   category    String

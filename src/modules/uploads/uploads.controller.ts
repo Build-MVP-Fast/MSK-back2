@@ -18,6 +18,7 @@ const ALLOWED_FOLDERS = new Set([
   'supplier-logos',
   'company-logos',
   'avatars',
+  'property-content',
   'misc',
 ]);
 
