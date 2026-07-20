@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import {
   AccountKind,
+  AuditAction,
   AuthProvider,
   AvailabilityBlockReason,
   BookingSource,
@@ -23,6 +24,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { AvailabilityService } from '../availability/availability.service';
 import { OtpService } from '../auth/otp.service';
 import { EmailService } from '../notifications/email.service';
+import { MewsSyncService } from '../mews-sync/mews-sync.service';
 import type { CheckInSubmitDto } from './check-in.dto';
 
 interface CreateBookingInput {
@@ -64,6 +66,7 @@ export class BookingsService {
     private readonly availability: AvailabilityService,
     private readonly email: EmailService,
     private readonly otp: OtpService,
+    private readonly mewsSync: MewsSyncService,
   ) {}
 
   /**
@@ -640,17 +643,152 @@ export class BookingsService {
     });
   }
 
-  checkIn(id: string) {
-    return this.prisma.booking.update({
+  async checkIn(id: string) {
+    const booking = await this.prisma.booking.update({
       where: { id },
       data: { status: BookingStatus.CHECKED_IN, checkedInAt: new Date() },
     });
+    await this.recordActivity(id, 'CHECKED_IN', 'Guest checked in');
+    // Reflect the arrival back into Mews for Mews-backed properties.
+    void this.mewsSync.pushCheckIn(id);
+    return booking;
   }
 
-  checkOut(id: string) {
-    return this.prisma.booking.update({
+  async checkOut(id: string) {
+    const booking = await this.prisma.booking.update({
       where: { id },
       data: { status: BookingStatus.CHECKED_OUT, checkedOutAt: new Date() },
+    });
+    await this.recordActivity(id, 'CHECKED_OUT', 'Guest checked out');
+    return booking;
+  }
+
+  /**
+   * Summary counts for the app-dashboard Overview cards, scoped to a
+   * property (and always to the caller's company via companyId). "Today"
+   * is a UTC calendar day; if per-property-timezone precision is needed
+   * later, thread the property's tz through here.
+   *
+   *  - totalGuests     : bookings on record that aren't cancelled/no-show
+   *  - currentlyStaying: status = CHECKED_IN
+   *  - checkedInToday  : checkedInAt falls in today
+   *  - checkedOutToday : checkedOutAt falls in today
+   */
+  async stats(filter: { propertyId?: string; companyId?: string } = {}) {
+    const base: Prisma.BookingWhereInput = {
+      ...(filter.propertyId && { propertyId: filter.propertyId }),
+      ...(filter.companyId && { property: { companyId: filter.companyId } }),
+    };
+    const now = new Date();
+    const start = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
+    const end = new Date(start.getTime() + 86400000);
+
+    const [totalGuests, currentlyStaying, checkedInToday, checkedOutToday] =
+      await Promise.all([
+        this.prisma.booking.count({
+          where: {
+            ...base,
+            status: {
+              notIn: [BookingStatus.CANCELLED, BookingStatus.NO_SHOW],
+            },
+          },
+        }),
+        this.prisma.booking.count({
+          where: { ...base, status: BookingStatus.CHECKED_IN },
+        }),
+        this.prisma.booking.count({
+          where: { ...base, checkedInAt: { gte: start, lt: end } },
+        }),
+        this.prisma.booking.count({
+          where: { ...base, checkedOutAt: { gte: start, lt: end } },
+        }),
+      ]);
+
+    return { totalGuests, currentlyStaying, checkedInToday, checkedOutToday };
+  }
+
+  /**
+   * Append an entry to a booking's activity timeline. Stored on the
+   * generic AuditLog (entityType='Booking'); the specific event + human
+   * label live in `changes` so we don't need a new table. Best-effort —
+   * a logging failure must never break the booking operation that
+   * triggered it.
+   */
+  private async recordActivity(
+    bookingId: string,
+    event: string,
+    label: string,
+    meta?: Record<string, unknown>,
+    userId?: string | null,
+  ) {
+    try {
+      const changes: Prisma.InputJsonValue = {
+        event,
+        label,
+        ...(meta ? { meta: meta as Prisma.InputJsonValue } : {}),
+      };
+      await this.prisma.auditLog.create({
+        data: {
+          action: AuditAction.UPDATE,
+          entityType: 'Booking',
+          entityId: bookingId,
+          userId: userId ?? null,
+          changes,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Activity log failed (${event}) for booking ${bookingId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Activity timeline for the guest-detail drawer, newest first. Reads
+   * the AuditLog rows tagged to this booking and flattens the stored
+   * event/label out of `changes`.
+   */
+  async activity(bookingId: string) {
+    const exists = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { id: true },
+    });
+    if (!exists) throw new NotFoundException('Booking not found');
+
+    const rows = await this.prisma.auditLog.findMany({
+      where: { entityType: 'Booking', entityId: bookingId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: {
+        user: {
+          select: { id: true, fullName: true, firstName: true, lastName: true },
+        },
+      },
+    });
+
+    return rows.map((r) => {
+      const c = (r.changes ?? {}) as {
+        event?: string;
+        label?: string;
+        meta?: unknown;
+      };
+      const by = r.user
+        ? r.user.fullName ??
+          [r.user.firstName, r.user.lastName].filter(Boolean).join(' ') ??
+          null
+        : null;
+      return {
+        id: r.id,
+        event: c.event ?? r.action,
+        label: c.label ?? '',
+        meta: c.meta ?? null,
+        at: r.createdAt,
+        by: by || null,
+      };
     });
   }
 
@@ -1027,6 +1165,25 @@ export class BookingsService {
       );
     });
 
+    if (shouldFlipCheckedIn) {
+      await this.recordActivity(
+        bookingId,
+        'CHECKED_IN',
+        'Guest completed check-in on the app',
+      );
+      // Reflect the arrival back into Mews for Mews-backed properties.
+      void this.mewsSync.pushCheckIn(bookingId);
+    }
+    if (dto.guests && dto.guests.length > 0) {
+      await this.recordActivity(
+        bookingId,
+        'GUESTS_ADDED',
+        `${dto.guests.length} additional guest${
+          dto.guests.length === 1 ? '' : 's'
+        } added`,
+      );
+    }
+
     return this.detail(bookingId);
   }
 
@@ -1369,6 +1526,12 @@ export class BookingsService {
       data: { roomId: roomId ?? null },
       select: { id: true },
     });
+
+    await this.recordActivity(
+      bookingId,
+      roomId ? 'ROOM_ASSIGNED' : 'ROOM_UNASSIGNED',
+      roomId ? 'Room assigned' : 'Room unassigned',
+    );
 
     // Return the same shape `detail()` returns so the admin UI can replace
     // its booking state in-place without losing property/payments/invoices.

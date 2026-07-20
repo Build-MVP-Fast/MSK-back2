@@ -137,6 +137,17 @@ export class AssignRoomDto {
 }
 
 /**
+ * Overview-card summary counts. propertyId is optional — when omitted a
+ * SUPER_USER gets company-wide (or platform-wide) totals; the app
+ * dashboard always passes the selected property.
+ */
+export class StatsQueryDto {
+  @IsOptional()
+  @IsUUID()
+  propertyId?: string;
+}
+
+/**
  * Read-only calendar view of bookings for a property over a date window.
  * Used by the Reservations Calendar / Gantt view in the admin.
  */

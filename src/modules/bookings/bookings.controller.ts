@@ -19,6 +19,8 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { BookingSource, UserRole } from '@prisma/client';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
+import { companyScope } from '../../common/util/company-scope';
 import { Public } from '../../common/decorators/public.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -32,6 +34,7 @@ import {
   CancelBookingDto,
   CreateBookingDto,
   ListBookingsQueryDto,
+  StatsQueryDto,
 } from './dto';
 import {
   CheckInEmailCodeDto,
@@ -290,6 +293,23 @@ export class BookingsController {
   }
 
   /**
+   * Overview summary counts for the app dashboard. Always scoped to the
+   * caller's company (SUPER_USER may span all); the dashboard passes the
+   * selected propertyId. Routed BEFORE `:id` so "stats" isn't captured
+   * by the param route.
+   */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
+  @Get('stats')
+  stats(@Query() query: StatsQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.stats({
+      propertyId: query.propertyId,
+      companyId: companyScope(user),
+    });
+  }
+
+  /**
    * Bookings belonging to the authenticated guest — feeds the website's
    * profile page. Public route would be wrong (it'd leak by user-id);
    * any JWT is enough, no role restriction.
@@ -376,6 +396,15 @@ export class BookingsController {
   @Get(':id')
   detail(@Param('id') id: string) {
     return this.service.detail(id);
+  }
+
+  /** Activity timeline for the guest-detail drawer, newest first. */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
+  @Get(':id/activity')
+  activity(@Param('id') id: string) {
+    return this.service.activity(id);
   }
 
   @ApiBearerAuth()
