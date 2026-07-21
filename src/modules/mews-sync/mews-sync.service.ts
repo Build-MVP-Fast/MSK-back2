@@ -136,24 +136,39 @@ export class MewsSyncService {
     const { accessToken, enterpriseId } = creds;
 
     // Mews caps how wide a single reservations/getAll window can be, and the
-    // cap varies per enterprise, so we fetch the range in 30-day chunks and
-    // merge (deduping reservations + customers by id).
+    // cap varies per enterprise (some allow months, some ~100 hours). Try the
+    // whole window once (fast for lenient enterprises); if it rejects the
+    // interval, fall back to sub-4-day chunks. Merge, deduping by id.
     const now = Date.now();
     const rangeStart = now - 14 * 86400000;
     const rangeEnd = now + 60 * 86400000;
-    const CHUNK_MS = 30 * 86400000;
+    const SAFE_CHUNK_MS = 4 * 86400000; // under the ~100-hour per-call limit
 
     const resById = new Map<string, MewsReservation>();
     const custById = new Map<string, MewsCustomer>();
-    for (let s = rangeStart; s < rangeEnd; s += CHUNK_MS) {
-      const e = Math.min(s + CHUNK_MS, rangeEnd);
-      const { Reservations, Customers } = await reservationsGetAll(accessToken, {
+    const merge = (rs: MewsReservation[], cs: MewsCustomer[]) => {
+      for (const r of rs) resById.set(r.Id, r);
+      for (const c of cs) custById.set(c.Id, c);
+    };
+
+    try {
+      const one = await reservationsGetAll(accessToken, {
         enterpriseId,
-        startUtc: new Date(s).toISOString(),
-        endUtc: new Date(e).toISOString(),
+        startUtc: new Date(rangeStart).toISOString(),
+        endUtc: new Date(rangeEnd).toISOString(),
       });
-      for (const r of Reservations) resById.set(r.Id, r);
-      for (const c of Customers) custById.set(c.Id, c);
+      merge(one.Reservations, one.Customers);
+    } catch (err) {
+      if (!/interval must not exceed/i.test(String(err))) throw err;
+      for (let s = rangeStart; s < rangeEnd; s += SAFE_CHUNK_MS) {
+        const e = Math.min(s + SAFE_CHUNK_MS, rangeEnd);
+        const part = await reservationsGetAll(accessToken, {
+          enterpriseId,
+          startUtc: new Date(s).toISOString(),
+          endUtc: new Date(e).toISOString(),
+        });
+        merge(part.Reservations, part.Customers);
+      }
     }
     const Reservations = [...resById.values()];
     let upserted = 0;
