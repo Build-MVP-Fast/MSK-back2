@@ -8,7 +8,9 @@ const BASE =
   process.env.MEWS_CONNECTOR_BASE_URL ??
   "https://api.mews-demo.com/api/connector/v1";
 const CLIENT_TOKEN = process.env.MEWS_CLIENT_TOKEN ?? "";
-const CLIENT_NAME = process.env.MEWS_CLIENT_NAME ?? "MSK Guestbook";
+// The website sets this as MEWS_CLIENT; accept either name.
+const CLIENT_NAME =
+  process.env.MEWS_CLIENT ?? process.env.MEWS_CLIENT_NAME ?? "MSK Guestbook";
 
 export interface MewsReservation {
   Id: string;
