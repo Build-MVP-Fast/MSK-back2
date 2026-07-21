@@ -140,8 +140,8 @@ export class MewsSyncService {
     // whole window once (fast for lenient enterprises); if it rejects the
     // interval, fall back to sub-4-day chunks. Merge, deduping by id.
     const now = Date.now();
-    const rangeStart = now - 14 * 86400000;
-    const rangeEnd = now + 60 * 86400000;
+    const rangeStart = now - 7 * 86400000;
+    const rangeEnd = now + 30 * 86400000;
     const SAFE_CHUNK_MS = 4 * 86400000; // under the ~100-hour per-call limit
 
     const resById = new Map<string, MewsReservation>();

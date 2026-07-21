@@ -19,8 +19,12 @@ export class MewsSyncController {
   /** Manually trigger a mirror — all Mews-backed properties, or one. */
   @Post("run")
   run(@Body() body: { propertyId?: string }) {
-    return body?.propertyId
-      ? this.service.syncProperty(body.propertyId)
-      : this.service.syncAll();
+    if (body?.propertyId) {
+      return this.service.syncProperty(body.propertyId);
+    }
+    // A full sync across all properties can take minutes, so run it in the
+    // background and return immediately rather than holding the request open.
+    void this.service.syncAll().catch(() => undefined);
+    return { started: true };
   }
 }
