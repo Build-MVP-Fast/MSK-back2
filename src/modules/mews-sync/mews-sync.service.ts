@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
-import { BookingSource, BookingStatus, Prisma } from "@prisma/client";
+import { BookingSource, BookingStatus } from "@prisma/client";
 
 import { PrismaService } from "../../common/prisma/prisma.service";
 import {
@@ -36,6 +36,19 @@ function utcMidnight(iso: string): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
 
+// Maps a property slug to the env-var suffix the website already uses for
+// its Mews credentials (MEWS_TOKEN_<KEY> / MEWS_ENTERPRISE_<KEY>). Includes
+// the backend's "the-residence" slug alongside the website's.
+const SLUG_TO_ENV_KEY: Record<string, string> = {
+  "msk-elite": "ELITE",
+  "msk-premium": "PREMIUM",
+  "msk-superior": "SUPERIOR",
+  "msk-the-whiteley": "WHITELEY",
+  "msk-hotel-82": "HOTEL82",
+  "msk-the-residence": "RESIDENCE",
+  "the-residence": "RESIDENCE",
+};
+
 @Injectable()
 export class MewsSyncService {
   private readonly logger = new Logger(MewsSyncService.name);
@@ -58,22 +71,44 @@ export class MewsSyncService {
     }
   }
 
-  private mewsBackedWhere(): Prisma.PropertyWhereInput {
-    return {
-      OR: [
-        { NOT: { mewsEnterpriseId: null } },
-        { NOT: { mewsAccessToken: null } },
-      ],
-    };
+  /**
+   * Resolve a property's Mews credentials. Prefers per-property values
+   * stored on the record, then the env vars the website already uses
+   * (keyed by slug, e.g. MEWS_TOKEN_ELITE / MEWS_ENTERPRISE_ELITE), then
+   * the portfolio-wide MEWS_ACCESS_TOKEN. Returns null when nothing
+   * resolves — that property simply isn't Mews-backed.
+   */
+  private resolveCreds(property: {
+    slug: string;
+    mewsAccessToken: string | null;
+    mewsEnterpriseId: string | null;
+  }): { accessToken: string; enterpriseId?: string } | null {
+    const key = SLUG_TO_ENV_KEY[property.slug];
+    const accessToken =
+      property.mewsAccessToken ||
+      (key ? process.env[`MEWS_TOKEN_${key}`] : undefined) ||
+      process.env.MEWS_ACCESS_TOKEN ||
+      "";
+    if (!accessToken) return null;
+    const enterpriseId =
+      property.mewsEnterpriseId ||
+      (key ? process.env[`MEWS_ENTERPRISE_${key}`] : undefined) ||
+      undefined;
+    return { accessToken, enterpriseId };
   }
 
   async syncAll() {
     const properties = await this.prisma.property.findMany({
-      where: this.mewsBackedWhere(),
-      select: { id: true },
+      select: {
+        id: true,
+        slug: true,
+        mewsAccessToken: true,
+        mewsEnterpriseId: true,
+      },
     });
+    const targets = properties.filter((p) => this.resolveCreds(p) !== null);
     const results = [];
-    for (const p of properties) {
+    for (const p of targets) {
       try {
         results.push(await this.syncProperty(p.id));
       } catch (e) {
@@ -83,7 +118,7 @@ export class MewsSyncService {
         results.push({ propertyId: p.id, error: String(e) });
       }
     }
-    return { properties: properties.length, results };
+    return { properties: targets.length, results };
   }
 
   async syncProperty(propertyId: string) {
@@ -92,18 +127,18 @@ export class MewsSyncService {
     });
     if (!property) throw new NotFoundException("Property not found");
 
-    const accessToken =
-      property.mewsAccessToken || process.env.MEWS_ACCESS_TOKEN || "";
-    if (!accessToken) {
-      throw new BadRequestException("No Mews access token for this property");
+    const creds = this.resolveCreds(property);
+    if (!creds) {
+      throw new BadRequestException("No Mews credentials for this property");
     }
+    const { accessToken, enterpriseId } = creds;
 
     const now = Date.now();
     const startUtc = new Date(now - 7 * 86400000).toISOString();
     const endUtc = new Date(now + 60 * 86400000).toISOString();
 
     const { Reservations, Customers } = await reservationsGetAll(accessToken, {
-      enterpriseId: property.mewsEnterpriseId ?? undefined,
+      enterpriseId,
       startUtc,
       endUtc,
     });
