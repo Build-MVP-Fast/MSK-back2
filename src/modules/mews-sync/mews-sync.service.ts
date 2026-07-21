@@ -12,6 +12,8 @@ import {
   mewsConfigured,
   reservationsGetAll,
   reservationStart,
+  type MewsReservation,
+  type MewsCustomer,
 } from "./mews-connector";
 
 function mapState(state: string | undefined): BookingStatus {
@@ -133,17 +135,27 @@ export class MewsSyncService {
     }
     const { accessToken, enterpriseId } = creds;
 
+    // Mews caps how wide a single reservations/getAll window can be, and the
+    // cap varies per enterprise, so we fetch the range in 30-day chunks and
+    // merge (deduping reservations + customers by id).
     const now = Date.now();
-    const startUtc = new Date(now - 7 * 86400000).toISOString();
-    const endUtc = new Date(now + 60 * 86400000).toISOString();
+    const rangeStart = now - 14 * 86400000;
+    const rangeEnd = now + 60 * 86400000;
+    const CHUNK_MS = 30 * 86400000;
 
-    const { Reservations, Customers } = await reservationsGetAll(accessToken, {
-      enterpriseId,
-      startUtc,
-      endUtc,
-    });
-
-    const custById = new Map(Customers.map((c) => [c.Id, c]));
+    const resById = new Map<string, MewsReservation>();
+    const custById = new Map<string, MewsCustomer>();
+    for (let s = rangeStart; s < rangeEnd; s += CHUNK_MS) {
+      const e = Math.min(s + CHUNK_MS, rangeEnd);
+      const { Reservations, Customers } = await reservationsGetAll(accessToken, {
+        enterpriseId,
+        startUtc: new Date(s).toISOString(),
+        endUtc: new Date(e).toISOString(),
+      });
+      for (const r of Reservations) resById.set(r.Id, r);
+      for (const c of Customers) custById.set(c.Id, c);
+    }
+    const Reservations = [...resById.values()];
     let upserted = 0;
 
     for (const r of Reservations) {
