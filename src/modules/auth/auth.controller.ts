@@ -12,7 +12,9 @@ import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
 import { PermissionsService } from '../permissions/permissions.service';
 import {
+  LoginAppleDto,
   LoginEmailDto,
+  LoginGoogleDto,
   LoginPinDto,
   RegisterAdminDto,
   RegisterGuestDto,
@@ -99,6 +101,29 @@ export class AuthController {
   @Post('login/code')
   loginByCheckInCode(@Body() body: { code: string }) {
     return this.auth.loginWithCheckInCode(body.code);
+  }
+
+  /**
+   * Mobile guest Google sign-in. Client obtains an id_token via Google
+   * Sign-In SDK and posts it here; we verify against Google JWKS and
+   * issue MSK JWTs for a WEB_GUEST account (create or link by email).
+   */
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('login/google')
+  loginGoogle(@Body() dto: LoginGoogleDto) {
+    return this.auth.loginWithGoogle(dto);
+  }
+
+  /**
+   * Mobile guest Apple sign-in (iOS). Client posts the identityToken from
+   * Sign in with Apple; we verify against Apple JWKS and issue MSK JWTs.
+   */
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('login/apple')
+  loginApple(@Body() dto: LoginAppleDto) {
+    return this.auth.loginWithApple(dto);
   }
 
   @Public()

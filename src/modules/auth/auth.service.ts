@@ -6,9 +6,12 @@ import { Request } from 'express';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
 import { OtpService } from './otp.service';
+import { OAuthService, VerifiedOAuthIdentity } from './oauth.service';
 import { TokenService } from './token.service';
 import {
+  LoginAppleDto,
   LoginEmailDto,
+  LoginGoogleDto,
   LoginPinDto,
   RegisterAdminDto,
   RegisterGuestDto,
@@ -25,6 +28,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
     private readonly otp: OtpService,
+    private readonly oauth: OAuthService,
   ) {}
 
   // ---------------------------------------------------------------------- web
@@ -655,6 +659,165 @@ export class AuthService {
     });
 
     return { otpSent: true, contactHint: maskContact(destination) };
+  }
+
+  // ------------------------------------------------------------------ OAuth
+
+  /**
+   * Guest-only Google sign-in. Verifies the Google id_token, then
+   * finds/links/creates a WEB_GUEST APP-lane account.
+   */
+  async loginWithGoogle(dto: LoginGoogleDto) {
+    const identity = await this.oauth.verifyGoogleIdToken(dto.idToken);
+    return this.loginWithOAuthProvider(AuthProvider.GOOGLE, identity);
+  }
+
+  /**
+   * Guest-only Apple sign-in. Verifies the Apple identityToken, then
+   * finds/links/creates a WEB_GUEST APP-lane account. Name/email from
+   * the native SDK are used only when the token itself omits them
+   * (typical after the first authorization).
+   */
+  async loginWithApple(dto: LoginAppleDto) {
+    const identity = await this.oauth.verifyAppleIdentityToken(
+      dto.identityToken,
+      dto.email,
+    );
+    const firstName = dto.firstName ?? identity.firstName ?? null;
+    const lastName = dto.lastName ?? identity.lastName ?? null;
+    const fullName =
+      dto.fullName?.trim() ||
+      identity.fullName ||
+      ([firstName, lastName].filter(Boolean).join(' ') || null);
+
+    return this.loginWithOAuthProvider(AuthProvider.APPLE, {
+      ...identity,
+      firstName,
+      lastName,
+      fullName,
+    });
+  }
+
+  /**
+   * Shared Google/Apple guest login:
+   *  1. credential by provider + oauth:<sub>
+   *  2. else WEB_GUEST by email → link credential
+   *  3. else create WEB_GUEST
+   * Never links onto staff/admin/supplier roles.
+   */
+  private async loginWithOAuthProvider(
+    provider: Extract<AuthProvider, 'GOOGLE' | 'APPLE'>,
+    identity: VerifiedOAuthIdentity,
+  ) {
+    const secretHash = `oauth:${identity.providerUserId}`;
+
+    const existingCred = await this.prisma.userCredential.findFirst({
+      where: { provider, secretHash },
+      include: { user: true },
+    });
+
+    if (existingCred?.user) {
+      const user = existingCred.user;
+      if (!user.isActive || user.role !== UserRole.WEB_GUEST || user.accountKind !== AccountKind.APP) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          lastLoginAt: new Date(),
+          emailVerified: identity.emailVerified || user.emailVerified,
+          ...(identity.email && !user.email ? { email: identity.email } : {}),
+        },
+      });
+      return this.tokens.issue(user);
+    }
+
+    const email = identity.email?.trim().toLowerCase() || null;
+
+    if (email) {
+      const guest = await this.prisma.user.findFirst({
+        where: { email, role: UserRole.WEB_GUEST },
+      });
+
+      if (guest) {
+        if (!guest.isActive || guest.accountKind !== AccountKind.APP) {
+          throw new UnauthorizedException('Invalid credentials');
+        }
+        await this.prisma.userCredential.upsert({
+          where: { userId_provider: { userId: guest.id, provider } },
+          update: {
+            secretHash,
+            metadata: { providerUserId: identity.providerUserId } as Prisma.InputJsonValue,
+          },
+          create: {
+            userId: guest.id,
+            provider,
+            secretHash,
+            metadata: { providerUserId: identity.providerUserId } as Prisma.InputJsonValue,
+          },
+        });
+        await this.prisma.user.update({
+          where: { id: guest.id },
+          data: {
+            lastLoginAt: new Date(),
+            emailVerified: true,
+            // Don't overwrite primary authProvider if they already have PIN/password
+          },
+        });
+        return this.tokens.issue(guest);
+      }
+
+      // Email belongs only to a non-guest role — refuse rather than
+      // promoting a staff/admin account into the guest lane.
+      const nonGuest = await this.prisma.user.findFirst({
+        where: { email, role: { not: UserRole.WEB_GUEST } },
+      });
+      if (nonGuest) {
+        throw new UnauthorizedException(
+          'No guest account is registered with this email. Sign up first, or use the right role from the role selector.',
+        );
+      }
+    } else if (provider === AuthProvider.APPLE) {
+      // Returning Apple users often omit email. Without a prior credential
+      // we can't create/link an account — ask them to use email once or
+      // re-authorize sharing email.
+      throw new BadRequestException(
+        'Apple did not share an email for this account. Use email/OTP sign-in once, or revoke MSK in Apple ID settings and try again.',
+      );
+    } else {
+      throw new BadRequestException('Google account has no email');
+    }
+
+    const firstName = identity.firstName ?? null;
+    const lastName = identity.lastName ?? null;
+    const fullName =
+      identity.fullName ??
+      ([firstName, lastName].filter(Boolean).join(' ') || null);
+
+    const user = await this.prisma.user.create({
+      data: {
+        email,
+        firstName,
+        lastName,
+        fullName,
+        role: UserRole.WEB_GUEST,
+        primaryRole: UserRole.WEB_GUEST,
+        accountKind: AccountKind.APP,
+        authProvider: provider,
+        emailVerified: identity.emailVerified || !!email,
+        lastLoginAt: new Date(),
+        guestProfile: { create: {} },
+        credentials: {
+          create: {
+            provider,
+            secretHash,
+            metadata: { providerUserId: identity.providerUserId } as Prisma.InputJsonValue,
+          },
+        },
+      },
+    });
+
+    return this.tokens.issue(user);
   }
 }
 

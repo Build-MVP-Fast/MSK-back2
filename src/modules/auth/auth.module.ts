@@ -8,6 +8,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { DevUserSeed } from './dev-user.seed';
+import { OAuthService } from './oauth.service';
 import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -26,7 +27,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, OtpService, TokenService, JwtStrategy, DevUserSeed],
+  providers: [AuthService, OtpService, OAuthService, TokenService, JwtStrategy, DevUserSeed],
   // JwtModule is re-exported so other modules (e.g. BookingsModule's
   // check-in token guard) can inject JwtService without redeclaring the
   // signing key or TTL.

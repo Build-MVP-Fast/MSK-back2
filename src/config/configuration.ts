@@ -20,6 +20,16 @@ export default () => ({
     refreshSecret: process.env.JWT_REFRESH_SECRET,
     refreshTtl: process.env.JWT_REFRESH_TTL ?? '30d',
   },
+  oauth: {
+    googleClientIds: (process.env.GOOGLE_CLIENT_IDS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    appleClientId: process.env.APPLE_CLIENT_ID ?? 'com.msk.mobile',
+    appleTeamId: process.env.APPLE_TEAM_ID,
+    appleKeyId: process.env.APPLE_KEY_ID,
+    applePrivateKey: process.env.APPLE_PRIVATE_KEY,
+  },
   otp: {
     ttlSeconds: parseInt(process.env.OTP_TTL_SECONDS ?? '300', 10),
     length: parseInt(process.env.OTP_LENGTH ?? '6', 10),

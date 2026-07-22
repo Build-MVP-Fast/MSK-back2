@@ -246,3 +246,37 @@ export class RefreshTokenDto {
   @IsString()
   refreshToken!: string;
 }
+
+/** Mobile guest Google sign-in — id_token from Google Sign-In SDK. */
+export class LoginGoogleDto {
+  @IsString()
+  @IsNotEmpty()
+  idToken!: string;
+}
+
+/**
+ * Mobile guest Apple sign-in — identityToken from expo-apple-authentication.
+ * fullName / email are only available on the first Apple authorization;
+ * subsequent logins rely on the token `sub` alone.
+ */
+export class LoginAppleDto {
+  @IsString()
+  @IsNotEmpty()
+  identityToken!: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  fullName?: string;
+
+  @IsOptional()
+  @IsString()
+  firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  lastName?: string;
+}

@@ -87,7 +87,7 @@ msk-backend/
 Each module is self-contained: `*.module.ts`, `*.controller.ts`, `*.service.ts`, optionally `dto/`.
 
 ### Identity & access
-- **auth** — Multi-flavour login: web (email + password), app (phone + PIN), OTP, password/PIN reset, registration for guest/admin/web-guest, reservation enquiry. JWT + rotated refresh tokens.
+- **auth** — Multi-flavour login: web (email + password), app (phone + PIN), OTP, guest Google/Apple (`POST /auth/login/google`, `POST /auth/login/apple`), password/PIN reset, registration for guest/admin/web-guest, reservation enquiry. JWT + rotated refresh tokens.
 - **users** — Profile management, additional guests, soft delete.
 - **access-control** — RBAC (RoleDefinition + Permission + RolePermission), AccessGrant for resource-scoped permissions.
 
