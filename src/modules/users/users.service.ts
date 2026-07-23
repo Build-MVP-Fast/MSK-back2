@@ -129,6 +129,75 @@ export class UsersService {
   }
 
   /**
+   * Self-service account deletion (App Store 5.1.1(v)).
+   * Keeps the row for FK/audit integrity but permanently removes the
+   * user's ability to sign in and scrubs personal data so the account
+   * cannot be recovered or re-linked via Apple/Google/email.
+   */
+  async deleteOwnAccount(id: string) {
+    const user = await this.prisma.user.findFirst({ where: { id } });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.deletedAt) {
+      return { ok: true as const, alreadyDeleted: true as const };
+    }
+
+    const tombstoneEmail = `deleted+${id}@deleted.msk.invalid`;
+    const deletedAt = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.refreshToken.deleteMany({ where: { userId: id } });
+      await tx.userCredential.deleteMany({ where: { userId: id } });
+      await tx.passwordResetToken.deleteMany({ where: { userId: id } });
+      await tx.otpCode.deleteMany({ where: { userId: id } });
+      await tx.notificationToken.deleteMany({ where: { userId: id } });
+      await tx.device.deleteMany({ where: { userId: id } });
+
+      const guestProfile = await tx.guestProfile.findUnique({
+        where: { userId: id },
+        select: { id: true },
+      });
+      if (guestProfile) {
+        await tx.additionalGuest.deleteMany({
+          where: { hostProfileId: guestProfile.id },
+        });
+        await tx.guestProfile.update({
+          where: { id: guestProfile.id },
+          data: {
+            loyaltyNumber: null,
+            preferences: Prisma.DbNull,
+            documentNumber: null,
+            documentType: null,
+            documentImageUrl: null,
+            nationality: null,
+            dateOfBirth: null,
+            emergencyContact: Prisma.DbNull,
+          },
+        });
+      }
+
+      await tx.user.update({
+        where: { id },
+        data: {
+          isActive: false,
+          deletedAt,
+          email: tombstoneEmail,
+          phone: null,
+          fullName: 'Deleted User',
+          firstName: 'Deleted',
+          lastName: 'User',
+          avatarUrl: null,
+          metadata: Prisma.DbNull,
+          emailVerified: false,
+          phoneVerified: false,
+        },
+      });
+    });
+
+    this.logger.log(`Account deleted (self-service): ${id}`);
+    return { ok: true as const, alreadyDeleted: false as const };
+  }
+
+  /**
    * Create a new staff user from the admin dashboard. Hashes the password
    * with Argon2 (matching the registerWebGuest path) and, when requested,
    * fires off an invitation email best-effort.

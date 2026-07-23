@@ -718,7 +718,12 @@ export class AuthService {
 
     if (existingCred?.user) {
       const user = existingCred.user;
-      if (!user.isActive || user.role !== UserRole.WEB_GUEST || user.accountKind !== AccountKind.APP) {
+      if (
+        !user.isActive ||
+        user.deletedAt ||
+        user.role !== UserRole.WEB_GUEST ||
+        user.accountKind !== AccountKind.APP
+      ) {
         throw new UnauthorizedException('Invalid credentials');
       }
       await this.prisma.user.update({
@@ -736,7 +741,7 @@ export class AuthService {
 
     if (email) {
       const guest = await this.prisma.user.findFirst({
-        where: { email, role: UserRole.WEB_GUEST },
+        where: { email, role: UserRole.WEB_GUEST, deletedAt: null },
       });
 
       if (guest) {

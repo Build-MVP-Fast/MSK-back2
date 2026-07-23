@@ -119,15 +119,13 @@ export class UsersController {
   }
 
   /**
-   * Self-service account deletion. Any authenticated user may soft-delete
-   * their OWN account (sets isActive=false + deletedAt); they're signed
-   * out immediately and can no longer log in. No @Roles — every role can
-   * remove their own account. Declared before @Delete(':id') so the
-   * literal "me" segment isn't captured as an :id param.
+   * Self-service account deletion (App Store 5.1.1(v)). Scrubs PII,
+   * revokes credentials/sessions, and permanently closes the account.
+   * Declared before @Delete(':id') so "me" isn't captured as :id.
    */
   @Delete('me')
   deleteMe(@CurrentUser('id') userId: string) {
-    return this.service.deactivate(userId);
+    return this.service.deleteOwnAccount(userId);
   }
 
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
