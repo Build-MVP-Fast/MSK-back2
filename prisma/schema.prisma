@@ -18,8 +18,14 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // App traffic — prefer Supabase transaction pooler (:6543?pgbouncer=true)
+  // so we don't burn the session-mode pool (max ~15 on free/small plans).
+  url       = env("DATABASE_URL")
+  // Migrations / introspect — MUST be the direct DB host (db.*.supabase.co:5432),
+  // not the session pooler. Prisma uses this for `migrate deploy` so deploys
+  // don't die with EMAXCONNSESSION when the pooler is saturated.
+  directUrl = env("DIRECT_URL")
 }
 
 // ============================================================================
