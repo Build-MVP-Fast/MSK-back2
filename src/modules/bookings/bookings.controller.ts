@@ -38,12 +38,14 @@ import {
 } from './dto';
 import {
   CheckInEmailCodeDto,
+  CheckInLookupDto,
   CheckInStartDto,
   CheckInSubmitDto,
   CheckInVerifyDto,
 } from './check-in.dto';
 import { AddStayGuestDto } from './stay-guest.dto';
 import {
+  CheckOutLookupDto,
   CheckOutOtpRequestDto,
   CheckOutOtpVerifyDto,
   CheckOutSignInCodeDto,
@@ -82,7 +84,7 @@ export class BookingsController {
    */
   @Public()
   @Post('public/check-in/lookup')
-  checkInLookup(@Body() dto: { reference: string }) {
+  checkInLookup(@Body() dto: CheckInLookupDto) {
     return this.service.checkInLookup(dto.reference);
   }
 
@@ -146,6 +148,45 @@ export class BookingsController {
 
   @Public()
   @UseGuards(CheckInTokenGuard)
+  @Post('public/check-in/upload-id')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 } }))
+  async checkInUploadId(
+    @Req() req: { bookingId: string },
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded. Field name must be "file".');
+    }
+    const folder = `check-in/${req.bookingId}/id`;
+    const { url } = await this.storage.upload(file.buffer, file.mimetype, folder);
+    return { url };
+  }
+
+  @Public()
+  @UseGuards(CheckInTokenGuard)
+  @Post('public/check-in/upload-selfie')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 } }))
+  async checkInUploadSelfie(
+    @Req() req: { bookingId: string },
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded. Field name must be "file".');
+    }
+    const folder = `check-in/${req.bookingId}/selfie`;
+    const { url } = await this.storage.upload(file.buffer, file.mimetype, folder);
+    return { url };
+  }
+
+  @Public()
+  @UseGuards(CheckInTokenGuard)
+  @Post('public/check-in/refresh-code')
+  checkInRefreshCode(@Req() req: { bookingId: string }) {
+    return this.service.checkInRefreshCode(req.bookingId);
+  }
+
+  @Public()
+  @UseGuards(CheckInTokenGuard)
   @Post('public/check-in/submit')
   checkInSubmit(
     @Req() req: { bookingId: string },
@@ -191,6 +232,19 @@ export class BookingsController {
     const result = await this.service.checkOutVerifyOtp(dto.email, dto.code);
     const checkOutToken = await buildCheckOutToken(this.jwt, result.userId, 'user');
     return { checkOutToken, mode: 'user' as const };
+  }
+
+  /**
+   * Main checkout page — enter reservation number. Issues a booking-scoped
+   * token so the guest can continue into Remote / Reception checkout for
+   * that stay without creating an account.
+   */
+  @Public()
+  @Post('public/check-out/lookup')
+  async checkOutLookup(@Body() dto: CheckOutLookupDto) {
+    const booking = await this.service.checkOutLookup(dto.reference);
+    const checkOutToken = await buildCheckOutToken(this.jwt, booking.id, 'booking');
+    return { checkOutToken, mode: 'booking' as const, booking };
   }
 
   /** RESERVATION page — list bookings the holder can check out of. */

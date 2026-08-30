@@ -54,8 +54,8 @@ export class LoginEmailDto {
    */
   @IsOptional()
   @IsString()
-  @IsIn(['STAFF', 'SUPERVISOR', 'RECEPTIONIST', 'SUPPLIER', 'ADMIN', 'SUPER_USER'])
-  role?: 'STAFF' | 'SUPERVISOR' | 'RECEPTIONIST' | 'SUPPLIER' | 'ADMIN' | 'SUPER_USER';
+  @IsIn(['STAFF', 'SUPERVISOR', 'RECEPTIONIST', 'SUPPLIER', 'ADMIN', 'SUPER_USER', 'WEB_GUEST'])
+  role?: 'STAFF' | 'SUPERVISOR' | 'RECEPTIONIST' | 'SUPPLIER' | 'ADMIN' | 'SUPER_USER' | 'WEB_GUEST';
 }
 
 export class RegisterGuestDto {

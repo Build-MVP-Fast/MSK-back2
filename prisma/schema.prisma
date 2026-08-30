@@ -992,6 +992,13 @@ model Booking {
   signatureUrl        String?
   additionalInfoText  String?
   acceptedTermsAt     DateTime?
+  vehicleRegistration String?
+  identityVerifyMethod String?   // "SELF" | "RECEPTION"
+  idDocumentUrl       String?
+  selfieUrl           String?
+  acceptedPrivacyAt   DateTime?
+  confirmedAccurateAt DateTime?
+  identityConsentAt   DateTime?
 
   // ── Mobile guest-wizard checkout fields ────────────────────────────
   // Populated by /bookings/public/check-out/submit. Photos are S3 URLs
@@ -1005,6 +1012,9 @@ model Booking {
   checkoutStaffName           String?
   checkoutFeedback            String?
   checkoutConfirmedAt         DateTime?
+  checkoutMethod              String?   // "REMOTE" | "RECEPTION"
+  checkoutPaymentMethod       String?   // "PROPERTY" | "CARD" | "BANK_TRANSFER"
+  checkoutStaffQrCode         String?
 
   createdById     String?
   createdBy       User?         @relation("BookingCreatedBy", fields: [createdById], references: [id])

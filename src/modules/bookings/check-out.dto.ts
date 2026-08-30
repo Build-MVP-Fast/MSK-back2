@@ -1,16 +1,15 @@
 import {
   ArrayMaxSize,
-  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsEmail,
   IsIn,
   IsOptional,
   IsString,
-  IsUrl,
   Length,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 /** POST /bookings/public/check-out/sign-in/credentials */
@@ -46,37 +45,54 @@ export class CheckOutOtpVerifyDto {
   code!: string;
 }
 
+/** POST /bookings/public/check-out/lookup */
+export class CheckOutLookupDto {
+  @IsString()
+  @MinLength(3)
+  reference!: string;
+}
+
 /** POST /bookings/public/check-out/submit */
 export class CheckOutSubmitDto {
   @IsString()
   bookingId!: string;
 
-  // Photos are S3 URLs returned by the /check-out/upload-photo endpoint.
-  // Room photos are 2–4 per the UI's required range; bathroom is 1+;
-  // key-location photo is required only when the guest chose "in the
-  // room" — the controller / service enforces that branch separately.
+  @IsIn(['REMOTE', 'RECEPTION'])
+  checkoutMethod!: 'REMOTE' | 'RECEPTION';
+
+  @IsOptional()
+  @IsIn(['PROPERTY', 'CARD', 'BANK_TRANSFER'])
+  paymentMethod?: 'PROPERTY' | 'CARD' | 'BANK_TRANSFER';
+
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(2)
   @ArrayMaxSize(10)
   @IsString({ each: true })
-  roomPhotoUrls!: string[];
+  roomPhotoUrls?: string[];
 
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @ArrayMaxSize(10)
   @IsString({ each: true })
-  bathroomPhotoUrls!: string[];
+  bathroomPhotoUrls?: string[];
 
+  @IsOptional()
   @IsIn(['STAFF', 'ROOM'])
-  keyLocation!: 'STAFF' | 'ROOM';
+  keyLocation?: 'STAFF' | 'ROOM';
 
   @IsOptional()
   @IsString()
   @MaxLength(200)
   staffName?: string;
 
-  @IsOptional()
+  @ValidateIf((o: CheckOutSubmitDto) => o.checkoutMethod === 'RECEPTION')
   @IsString()
+  @MinLength(1)
+  staffQrCode?: string;
+
+  @ValidateIf((o: CheckOutSubmitDto) => o.checkoutMethod === 'REMOTE')
+  @IsString()
+  @MinLength(1)
   keyLocationPhotoUrl?: string;
 
   @IsOptional()

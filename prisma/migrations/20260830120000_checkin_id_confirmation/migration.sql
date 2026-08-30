@@ -1,0 +1,8 @@
+-- AlterTable
+ALTER TABLE "Booking" ADD COLUMN IF NOT EXISTS "vehicleRegistration" TEXT;
+ALTER TABLE "Booking" ADD COLUMN IF NOT EXISTS "identityVerifyMethod" TEXT;
+ALTER TABLE "Booking" ADD COLUMN IF NOT EXISTS "idDocumentUrl" TEXT;
+ALTER TABLE "Booking" ADD COLUMN IF NOT EXISTS "selfieUrl" TEXT;
+ALTER TABLE "Booking" ADD COLUMN IF NOT EXISTS "acceptedPrivacyAt" TIMESTAMP(3);
+ALTER TABLE "Booking" ADD COLUMN IF NOT EXISTS "confirmedAccurateAt" TIMESTAMP(3);
+ALTER TABLE "Booking" ADD COLUMN IF NOT EXISTS "identityConsentAt" TIMESTAMP(3);

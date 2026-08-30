@@ -15,6 +15,7 @@ import {
   BookingStatus,
   OtpPurpose,
   Prisma,
+  QrCodeTarget,
   UserRole,
 } from '@prisma/client';
 import * as argon2 from 'argon2';
@@ -480,13 +481,15 @@ export class BookingsService {
    * authenticated step (signature upload, submit).
    */
   async checkInLookup(reference: string) {
-    const booking = await this.prisma.booking.findUnique({
-      where: { reference: reference.trim() },
+    const booking = await this.prisma.booking.findFirst({
+      where: { reference: { equals: reference.trim(), mode: 'insensitive' } },
       include: {
         property: {
           select: {
             id: true,
             name: true,
+            email: true,
+            phone: true,
             roomTypes: {
               select: {
                 id: true,
@@ -539,6 +542,8 @@ export class BookingsService {
     property: {
       id: string;
       name: string;
+      email: string | null;
+      phone: string | null;
       roomTypes: Array<{
         id: string;
         name: string;
@@ -559,6 +564,8 @@ export class BookingsService {
       reference: booking.reference,
       propertyId: booking.property.id,
       propertyName: booking.property.name,
+      propertyEmail: booking.property.email,
+      propertyPhone: booking.property.phone,
       roomType: booking.roomType
         ? { id: booking.roomType.id, name: booking.roomType.name }
         : null,
@@ -808,8 +815,8 @@ export class BookingsService {
     // the stored row is correct.
     const normalizedRef = reference.trim();
     const normalizedLast = lastName.trim().toLowerCase();
-    const booking = await this.prisma.booking.findUnique({
-      where: { reference: normalizedRef },
+    const booking = await this.prisma.booking.findFirst({
+      where: { reference: { equals: normalizedRef, mode: 'insensitive' } },
       include: { guestUser: true },
     });
     if (!booking) throw new NotFoundException('Reservation not found');
@@ -854,14 +861,16 @@ export class BookingsService {
   async checkInVerify(reference: string, lastName: string, code: string) {
     const normalizedRef = reference.trim();
     const normalizedLast = lastName.trim().toLowerCase();
-    const booking = await this.prisma.booking.findUnique({
-      where: { reference: normalizedRef },
+    const booking = await this.prisma.booking.findFirst({
+      where: { reference: { equals: normalizedRef, mode: 'insensitive' } },
       include: {
         guestUser: true,
         property: {
           select: {
             id: true,
             name: true,
+            email: true,
+            phone: true,
             // All published room types at the property, so the wizard
             // can render real options when the guest asks to switch
             // instead of falling back to a hard-coded mock list.
@@ -954,6 +963,20 @@ export class BookingsService {
     return { saved: true };
   }
 
+  async checkInRefreshCode(bookingId: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { id: true, status: true },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    const checkInCode = await this.allocateUniqueCheckInCode();
+    await this.prisma.booking.update({
+      where: { id: bookingId },
+      data: { checkInCode },
+    });
+    return { checkInCode };
+  }
+
   /**
    * Email the booking's `checkInCode` to the guest. The "Email Code"
    * popup in the wizard's verification page calls this. Falls back to the
@@ -1017,6 +1040,24 @@ export class BookingsService {
     if (!dto.acceptedTerms) {
       throw new BadRequestException('Terms must be accepted');
     }
+    if (!dto.acceptedPrivacy) {
+      throw new BadRequestException('Privacy notice must be acknowledged');
+    }
+    if (!dto.confirmedAccurate) {
+      throw new BadRequestException('Please confirm the information is accurate');
+    }
+    const method = dto.identityVerifyMethod ?? 'RECEPTION';
+    if (method === 'SELF') {
+      if (!dto.identityConsent) {
+        throw new BadRequestException('Identity verification consent is required');
+      }
+      if (!dto.idDocumentUrl || !dto.selfieUrl) {
+        throw new BadRequestException('Please upload an ID document and a live selfie');
+      }
+    }
+    const physicalVerifyChoice =
+      dto.physicalVerifyChoice ?? (method === 'SELF' ? 'LATER' : 'NOW');
+    const addressByCode = dto.addressByCode ?? false;
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
     });
@@ -1124,11 +1165,18 @@ export class BookingsService {
           arrivalTime: dto.arrivalTime ?? booking.arrivalTime,
           wantsRoomTypeChange: dto.wantsRoomTypeChange ?? booking.wantsRoomTypeChange,
           requestedRoomType: dto.requestedRoomType ?? booking.requestedRoomType,
-          physicalVerifyChoice: dto.physicalVerifyChoice,
-          addressByCode: dto.addressByCode,
+          physicalVerifyChoice,
+          addressByCode,
           signatureUrl: dto.signatureUrl ?? booking.signatureUrl,
           additionalInfoText: dto.additionalInfoText ?? booking.additionalInfoText,
           acceptedTermsAt: now,
+          vehicleRegistration: dto.vehicleRegistration ?? booking.vehicleRegistration,
+          identityVerifyMethod: method,
+          idDocumentUrl: dto.idDocumentUrl ?? booking.idDocumentUrl,
+          selfieUrl: dto.selfieUrl ?? booking.selfieUrl,
+          acceptedPrivacyAt: now,
+          confirmedAccurateAt: now,
+          identityConsentAt: method === 'SELF' ? now : booking.identityConsentAt,
           ...(shouldFlipCheckedIn && {
             status: BookingStatus.CHECKED_IN,
             checkedInAt: now,
@@ -1258,7 +1306,7 @@ export class BookingsService {
    */
   async checkOutSignInWithCredentials(email: string, password: string) {
     const user = await this.prisma.user.findFirst({
-      where: { email },
+      where: { email: { equals: email.trim(), mode: 'insensitive' } },
       include: { credentials: true },
     });
     if (!user || !user.isActive) {
@@ -1282,7 +1330,7 @@ export class BookingsService {
    */
   async checkOutSignInWithCode(code: string) {
     const booking = await this.prisma.booking.findUnique({
-      where: { checkInCode: code },
+      where: { checkInCode: code.trim().toUpperCase() },
       select: { id: true, status: true, guestUserId: true },
     });
     if (!booking) throw new UnauthorizedException('Invalid code');
@@ -1307,7 +1355,7 @@ export class BookingsService {
    */
   async checkOutRequestOtp(email: string) {
     const user = await this.prisma.user.findFirst({
-      where: { email },
+      where: { email: { equals: email.trim(), mode: 'insensitive' } },
       select: { id: true, isActive: true, email: true },
     });
     // Don't leak whether the address exists — always claim success.
@@ -1329,7 +1377,7 @@ export class BookingsService {
    */
   async checkOutVerifyOtp(email: string, code: string) {
     const user = await this.prisma.user.findFirst({
-      where: { email },
+      where: { email: { equals: email.trim(), mode: 'insensitive' } },
       select: { id: true, isActive: true, email: true },
     });
     if (!user || !user.isActive || !user.email) {
@@ -1356,35 +1404,72 @@ export class BookingsService {
           ? { guestUserId: sub, status: BookingStatus.CHECKED_IN }
           : { id: sub, status: BookingStatus.CHECKED_IN },
       include: {
-        property: { select: { id: true, name: true } },
+        property: { select: { id: true, name: true, email: true, phone: true } },
         roomType: { select: { id: true, name: true } },
       },
       orderBy: { checkIn: 'asc' },
     });
-    return bookings.map((b) => {
-      const totalAmount = Number(b.totalAmount);
-      const paidAmount = Number(b.paidAmount);
-      return {
-        id: b.id,
-        reference: b.reference,
-        propertyName: b.property.name,
-        roomTypeName: b.roomType?.name ?? null,
-        checkIn: b.checkIn,
-        checkOut: b.checkOut,
-        outstandingAmount: Math.max(0, totalAmount - paidAmount),
-        currency: b.currency,
-      };
-    });
+    return bookings.map((b) => this.toCheckOutReservation(b));
   }
 
   /**
-   * Final checkout submit. Saves the photo URLs, key-handover details,
-   * feedback note, and flips the booking to CHECKED_OUT. Refuses to
-   * touch a booking that's already CHECKED_OUT, CANCELLED, or NO_SHOW;
-   * the guest needs CHECKED_IN status to check out. Enforces token-mode
-   * ↔ booking ownership: a `user`-mode token can only check out one of
-   * its own bookings; a `booking`-mode token can only check out the
-   * exact booking the code authenticated to.
+   * Main checkout page — look up a currently checked-in stay by
+   * reservation number. No OTP; knowing the reference is the credential,
+   * matching the client's "Enter Reservation Number" path.
+   */
+  async checkOutLookup(reference: string) {
+    const booking = await this.prisma.booking.findFirst({
+      where: { reference: { equals: reference.trim(), mode: 'insensitive' } },
+      include: {
+        property: { select: { id: true, name: true, email: true, phone: true } },
+        roomType: { select: { id: true, name: true } },
+      },
+    });
+    if (!booking) throw new NotFoundException('Reservation not found');
+    if (booking.status !== BookingStatus.CHECKED_IN) {
+      throw new BadRequestException(
+        'This reservation is not currently checked in',
+      );
+    }
+    return this.toCheckOutReservation(booking);
+  }
+
+  private toCheckOutReservation(b: {
+    id: string;
+    reference: string;
+    checkIn: Date;
+    checkOut: Date;
+    totalAmount: Prisma.Decimal;
+    paidAmount: Prisma.Decimal;
+    currency: string;
+    property: { name: string; email: string | null; phone: string | null };
+    roomType: { name: string } | null;
+  }) {
+    const totalAmount = Number(b.totalAmount);
+    const paidAmount = Number(b.paidAmount);
+    return {
+      id: b.id,
+      reference: b.reference,
+      propertyName: b.property.name,
+      propertyEmail: b.property.email,
+      propertyPhone: b.property.phone,
+      roomTypeName: b.roomType?.name ?? null,
+      checkIn: b.checkIn,
+      checkOut: b.checkOut,
+      totalAmount,
+      paidAmount,
+      outstandingAmount: Math.max(0, totalAmount - paidAmount),
+      roomUpgradeAmount: 0,
+      additionalServicesAmount: 0,
+      discountAmount: 0,
+      currency: b.currency,
+    };
+  }
+
+  /**
+   * Final checkout submit. Remote requires a key-location photo;
+   * reception requires a scanned staff QR. Outstanding balances must
+   * declare a settlement method (pay at property / card / bank).
    */
   async checkOutSubmit(
     sub: string,
@@ -1396,15 +1481,39 @@ export class BookingsService {
         'Checkout confirmation checkbox must be ticked',
       );
     }
-    if (dto.keyLocation === 'ROOM' && !dto.keyLocationPhotoUrl) {
+
+    const method = dto.checkoutMethod;
+    const keyLocation =
+      dto.keyLocation ?? (method === 'REMOTE' ? 'ROOM' : 'STAFF');
+
+    if (method === 'REMOTE' && !dto.keyLocationPhotoUrl) {
       throw new BadRequestException(
-        'A photo of the key location is required when leaving the key in the room',
+        'A photo of where you left the room key is required for remote check-out',
       );
+    }
+
+    let staffName = dto.staffName ?? null;
+    let staffQrCode: string | null = null;
+    if (method === 'RECEPTION') {
+      if (!dto.staffQrCode?.trim()) {
+        throw new BadRequestException(
+          'Scan a staff QR code to check out at reception',
+        );
+      }
+      const staff = await this.resolveStaffQr(dto.staffQrCode);
+      staffName = staff.staffName;
+      staffQrCode = staff.code;
     }
 
     const booking = await this.prisma.booking.findUnique({
       where: { id: dto.bookingId },
-      select: { id: true, status: true, guestUserId: true },
+      select: {
+        id: true,
+        status: true,
+        guestUserId: true,
+        totalAmount: true,
+        paidAmount: true,
+      },
     });
     if (!booking) throw new NotFoundException('Booking not found');
     if (booking.status !== BookingStatus.CHECKED_IN) {
@@ -1419,23 +1528,68 @@ export class BookingsService {
       throw new UnauthorizedException('Token cannot act on this booking');
     }
 
+    const outstanding = Math.max(
+      0,
+      Number(booking.totalAmount) - Number(booking.paidAmount),
+    );
+    if (outstanding > 0 && !dto.paymentMethod) {
+      throw new BadRequestException(
+        'Choose how you would like to settle the outstanding balance',
+      );
+    }
+
     const now = new Date();
     await this.prisma.booking.update({
       where: { id: dto.bookingId },
       data: {
         status: BookingStatus.CHECKED_OUT,
         checkedOutAt: now,
-        checkoutRoomPhotoUrls: dto.roomPhotoUrls,
-        checkoutBathroomPhotoUrls: dto.bathroomPhotoUrls,
-        checkoutKeyLocation: dto.keyLocation,
-        checkoutStaffName: dto.keyLocation === 'STAFF' ? dto.staffName ?? null : null,
+        checkoutMethod: method,
+        checkoutPaymentMethod: dto.paymentMethod ?? null,
+        checkoutStaffQrCode: staffQrCode,
+        checkoutRoomPhotoUrls: dto.roomPhotoUrls ?? [],
+        checkoutBathroomPhotoUrls: dto.bathroomPhotoUrls ?? [],
+        checkoutKeyLocation: keyLocation,
+        checkoutStaffName: method === 'RECEPTION' ? staffName : dto.staffName ?? null,
         checkoutKeyLocationPhotoUrl:
-          dto.keyLocation === 'ROOM' ? dto.keyLocationPhotoUrl ?? null : null,
+          method === 'REMOTE' ? dto.keyLocationPhotoUrl ?? null : null,
         checkoutFeedback: dto.feedback ?? null,
         checkoutConfirmedAt: now,
       },
     });
     return { checkedOut: true };
+  }
+
+  private extractQrCode(raw: string): string {
+    const trimmed = raw.trim();
+    try {
+      const u = new URL(trimmed);
+      return u.pathname.split('/').filter(Boolean).pop() || trimmed;
+    } catch {
+      return trimmed.includes('/')
+        ? trimmed.split('/').filter(Boolean).pop() || trimmed
+        : trimmed;
+    }
+  }
+
+  private async resolveStaffQr(raw: string) {
+    const code = this.extractQrCode(raw);
+    const record = await this.prisma.qrCode.findUnique({ where: { code } });
+    if (!record || !record.isActive) {
+      throw new BadRequestException('Unknown or inactive staff QR code');
+    }
+    if (record.target !== QrCodeTarget.STAFF) {
+      throw new BadRequestException('Please scan a staff QR code');
+    }
+    const payload = (record.payload ?? {}) as {
+      staffId?: string;
+      staffName?: string;
+    };
+    return {
+      code: record.code,
+      staffId: payload.staffId ?? null,
+      staffName: payload.staffName?.trim() || 'Staff',
+    };
   }
 
   update(id: string, dto: Prisma.BookingUncheckedUpdateInput) {

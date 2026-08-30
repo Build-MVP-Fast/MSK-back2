@@ -12,8 +12,16 @@ import {
   Matches,
   MaxLength,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
+
+/** Body for POST /bookings/public/check-in/lookup */
+export class CheckInLookupDto {
+  @IsString()
+  @MinLength(3)
+  reference!: string;
+}
 
 /** Body for POST /bookings/public/check-in/start */
 export class CheckInStartDto {
@@ -115,11 +123,42 @@ export class CheckInSubmitDto {
   guests?: CheckInGuestDto[];
 
   // ── Identity verification choices ────────────────────────────────────
+  @IsOptional()
   @IsIn(['NOW', 'LATER'])
-  physicalVerifyChoice!: 'NOW' | 'LATER';
+  physicalVerifyChoice?: 'NOW' | 'LATER';
 
+  @IsOptional()
   @IsBoolean()
-  addressByCode!: boolean;
+  addressByCode?: boolean;
+
+  @IsOptional()
+  @IsIn(['SELF', 'RECEPTION'])
+  identityVerifyMethod?: 'SELF' | 'RECEPTION';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  vehicleRegistration?: string;
+
+  @IsOptional()
+  @IsString()
+  idDocumentUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  selfieUrl?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  acceptedPrivacy?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  confirmedAccurate?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  identityConsent?: boolean;
 
   // ── Signature + final freeform note + terms ──────────────────────────
   @IsOptional()

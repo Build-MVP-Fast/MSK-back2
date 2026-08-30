@@ -80,11 +80,14 @@ export class AuthService {
    */
   async requestLoginOtp(email: string) {
     const user = await this.prisma.user.findFirst({
-      where: { email, role: UserRole.WEB_GUEST },
+      where: {
+        email: { equals: email.trim(), mode: 'insensitive' },
+        role: UserRole.WEB_GUEST,
+      },
     });
-    if (user && user.isActive) {
+    if (user && user.isActive && user.email) {
       await this.otp.send({
-        destination: email,
+        destination: user.email,
         channel: 'email',
         purpose: OtpPurpose.LOGIN,
         userId: user.id,
@@ -102,15 +105,18 @@ export class AuthService {
    * email exists only as a non-guest role.
    */
   async loginWithOtp(email: string, code: string) {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        email: { equals: email.trim(), mode: 'insensitive' },
+        role: UserRole.WEB_GUEST,
+      },
+    });
     await this.otp.consume({
-      destination: email,
+      destination: user?.email ?? email.trim(),
       code,
       purpose: OtpPurpose.LOGIN,
     });
-    const user = await this.prisma.user.findFirst({
-      where: { email, role: UserRole.WEB_GUEST },
-    });
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || !user.email) {
       throw new UnauthorizedException(
         'No guest account is registered with this email. Sign up first, or use the right role from the role selector.',
       );
