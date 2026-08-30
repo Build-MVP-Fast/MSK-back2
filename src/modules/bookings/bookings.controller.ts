@@ -43,7 +43,7 @@ import {
   CheckInSubmitDto,
   CheckInVerifyDto,
 } from './check-in.dto';
-import { AddStayGuestDto } from './stay-guest.dto';
+import { AddStayGuestDto, ClaimReservationDto, InviteStayGuestsDto } from './stay-guest.dto';
 import {
   CheckOutLookupDto,
   CheckOutOtpRequestDto,
@@ -393,15 +393,37 @@ export class BookingsController {
     return this.service.currentStay(userId, email);
   }
 
-  /** Additional guests attached to the current stay. */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('me/claim')
+  claimReservation(
+    @Body() dto: ClaimReservationDto,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('email') email: string | null,
+  ) {
+    return this.service.claimByReference(userId, email, dto.reference);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('me/invite-guests')
+  inviteStayGuests(
+    @Body() dto: InviteStayGuestsDto,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('email') email: string | null,
+  ) {
+    return this.service.inviteStayGuests(userId, email, dto.emails, dto.bookingId);
+  }
+
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Get('me/current-stay/guests')
   currentStayGuests(
     @CurrentUser('id') userId: string,
     @CurrentUser('email') email: string | null,
+    @Query('bookingId') bookingId?: string,
   ) {
-    return this.service.currentStayGuests(userId, email);
+    return this.service.currentStayGuests(userId, email, bookingId);
   }
 
   /** Add an additional guest to the signed-in user's current stay. */

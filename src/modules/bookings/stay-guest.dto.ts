@@ -1,4 +1,14 @@
-import { IsEmail, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsEmail,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 
 /**
  * Body for POST /bookings/me/current-stay/guests — a guest adding an
@@ -23,4 +33,25 @@ export class AddStayGuestDto {
   @IsInt()
   @Min(0)
   kidsCount?: number;
+
+  @IsOptional()
+  @IsString()
+  bookingId?: string;
+}
+
+export class InviteStayGuestsDto {
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsEmail({}, { each: true })
+  emails!: string[];
+
+  @IsOptional()
+  @IsString()
+  bookingId?: string;
+}
+
+export class ClaimReservationDto {
+  @IsString()
+  @MinLength(3)
+  reference!: string;
 }

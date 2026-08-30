@@ -55,12 +55,16 @@ async function bootstrap() {
   }
 
   const localHostRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+  const privateLanRegex =
+    /^https?:\/\/((192\.168\.\d+\.\d+)|(10\.\d+\.\d+\.\d+)|(172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+))(:\d+)?$/;
   app.enableCors({
     origin: (origin, cb) => {
       // Same-origin / curl / server-to-server (no Origin header).
       if (!origin) return cb(null, true);
       if (allowedOrigins.has(origin)) return cb(null, true);
-      if (!isProduction && localHostRegex.test(origin)) return cb(null, true);
+      if (!isProduction && (localHostRegex.test(origin) || privateLanRegex.test(origin))) {
+        return cb(null, true);
+      }
       // Returning `false` lets cors short-circuit with a clean refusal —
       // the response just omits Access-Control-Allow-Origin and the
       // browser blocks. Throwing an Error here would bubble into

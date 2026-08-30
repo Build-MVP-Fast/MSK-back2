@@ -38,7 +38,9 @@ export class InvoicesController {
     @CurrentUser('email') email: string | null,
     @CurrentUser('phone') phone: string | null,
   ) {
-    const stay = await this.bookings.currentStay(userId, email);
+    const stay = dto.bookingId
+      ? await this.bookings.stayByIdForGuest(userId, email, dto.bookingId)
+      : await this.bookings.currentStay(userId, email);
     if (!stay) {
       throw new NotFoundException('No active booking to attach an invoice to.');
     }

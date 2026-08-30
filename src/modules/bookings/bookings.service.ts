@@ -253,17 +253,168 @@ export class BookingsService {
    * Ordered by checkIn ASC so the profile page can pull "next stay"
    * trivially: the first item with checkIn >= today.
    */
+  private guestBookingWhere(userId: string, email?: string | null): Prisma.BookingWhereInput {
+    const or: Prisma.BookingWhereInput[] = [{ guestUserId: userId }];
+    if (email) {
+      or.push({ guestEmail: { equals: email, mode: 'insensitive' } });
+      or.push({
+        bookingGuests: { some: { email: { equals: email, mode: 'insensitive' } } },
+      });
+    }
+    return { OR: or };
+  }
+
   async mine(userId: string, email?: string | null) {
-    const orClauses: Prisma.BookingWhereInput[] = [{ guestUserId: userId }];
-    if (email) orClauses.push({ guestEmail: email });
-    return this.prisma.booking.findMany({
-      where: { OR: orClauses, status: { not: BookingStatus.CANCELLED } },
+    const rows = await this.prisma.booking.findMany({
+      where: { ...this.guestBookingWhere(userId, email), status: { not: BookingStatus.CANCELLED } },
       orderBy: { checkIn: 'asc' },
       include: {
         property: { select: { id: true, name: true, slug: true } },
+        roomType: { select: { id: true, name: true } },
         room: { select: { id: true, number: true } },
       },
     });
+    return rows.map((b) => this.toGuestReservation(b));
+  }
+
+  /**
+   * Link a reservation to the signed-in guest by number (homepage
+   * "Add Reservation"). Knowing the reference is the credential — same
+   * as public checkout lookup — as long as the stay isn't already
+   * owned by a different account.
+   */
+  async claimByReference(userId: string, email: string | null | undefined, reference: string) {
+    const booking = await this.prisma.booking.findFirst({
+      where: { reference: { equals: reference.trim(), mode: 'insensitive' } },
+      include: {
+        property: { select: { id: true, name: true, slug: true } },
+        roomType: { select: { id: true, name: true } },
+        room: { select: { id: true, number: true } },
+        bookingGuests: { select: { email: true } },
+      },
+    });
+    if (!booking) throw new NotFoundException('Reservation not found');
+    const emailMatch =
+      !!email &&
+      (booking.guestEmail?.toLowerCase() === email.toLowerCase() ||
+        booking.bookingGuests.some((g) => g.email?.toLowerCase() === email.toLowerCase()));
+    if (booking.guestUserId && booking.guestUserId !== userId && !emailMatch) {
+      throw new ConflictException('This reservation is already linked to another profile');
+    }
+    if (booking.guestUserId !== userId) {
+      await this.prisma.booking.update({
+        where: { id: booking.id },
+        data: { guestUserId: userId },
+      });
+    }
+    return this.toGuestReservation(booking);
+  }
+
+  /**
+   * Invite additional guests by email onto a stay the caller owns.
+   * Skips duplicates. Sends an invitation email with the reservation
+   * number so the invitee can sign in or create an account.
+   */
+  async inviteStayGuests(
+    userId: string,
+    email: string | null | undefined,
+    emails: string[],
+    bookingId?: string,
+  ) {
+    const stay = bookingId
+      ? await this.assertOwnedStay(userId, email, bookingId)
+      : await this.currentStay(userId, email);
+    if (!stay) throw new NotFoundException('No active stay to add a guest to');
+    const unique = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
+    const created: Array<{ id: string; fullName: string; email: string | null }> = [];
+    for (const dest of unique) {
+      const existing = await this.prisma.bookingGuest.findFirst({
+        where: { bookingId: stay.id, email: { equals: dest, mode: 'insensitive' } },
+      });
+      if (existing) continue;
+      const row = await this.prisma.bookingGuest.create({
+        data: {
+          bookingId: stay.id,
+          fullName: dest.split('@')[0] || dest,
+          email: dest,
+        },
+        select: { id: true, fullName: true, email: true, phone: true, isPrimary: true, hasKids: true, kidsCount: true },
+      });
+      created.push(row);
+      const html = `<p>You've been invited to reservation <strong>${stay.reference}</strong> at ${stay.property.name}.</p>
+        <p>Open MSK Guestbook, sign in (or create an account) with this email, then add the reservation number if it isn't already on your profile.</p>`;
+      await this.email.send(dest, `You're invited to ${stay.reference} on MSK Guestbook`, html);
+    }
+    return { invited: created.length, guests: created, skipped: unique.length - created.length };
+  }
+
+  async guestsForStay(userId: string, email: string | null | undefined, bookingId?: string) {
+    const stay = bookingId
+      ? await this.assertOwnedStay(userId, email, bookingId)
+      : await this.currentStay(userId, email);
+    if (!stay) return [];
+    return this.prisma.bookingGuest.findMany({
+      where: { bookingId: stay.id },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        isPrimary: true,
+        hasKids: true,
+        kidsCount: true,
+      },
+    });
+  }
+
+  async stayByIdForGuest(userId: string, email: string | null | undefined, bookingId: string) {
+    return this.assertOwnedStay(userId, email, bookingId);
+  }
+
+  private async assertOwnedStay(userId: string, email: string | null | undefined, bookingId: string) {
+    const booking = await this.prisma.booking.findFirst({
+      where: { id: bookingId, ...this.guestBookingWhere(userId, email) },
+      include: {
+        property: { select: { id: true, name: true, slug: true } },
+        roomType: { select: { id: true, name: true } },
+        room: { select: { id: true, number: true, floor: true } },
+      },
+    });
+    if (!booking) throw new NotFoundException('Reservation not found');
+    return this.toCurrentStaySummary(booking);
+  }
+
+  private toGuestReservation(b: {
+    id: string;
+    reference: string;
+    status: BookingStatus;
+    checkIn: Date;
+    checkOut: Date;
+    checkedInAt: Date | null;
+    checkedOutAt: Date | null;
+    checkInCode: string | null;
+    adults: number;
+    children: number;
+    nights?: number;
+    source?: BookingSource;
+    arrivalTime?: string | null;
+    totalAmount: Prisma.Decimal;
+    paidAmount: Prisma.Decimal;
+    currency: string;
+    property: { id: string; name: string; slug: string | null };
+    roomType: { id: string; name: string } | null;
+    room: { id: string; number: string } | null;
+  }) {
+    return {
+      ...this.toCurrentStaySummary({
+        ...b,
+        room: b.room ? { ...b.room, floor: null } : null,
+      }),
+      nights: b.nights,
+      source: b.source,
+      arrivalTime: b.arrivalTime ?? null,
+    };
   }
 
   /**
@@ -281,10 +432,8 @@ export class BookingsService {
    * account once they create one with the same email.
    */
   async currentStay(userId: string, email?: string | null) {
-    const orClauses: Prisma.BookingWhereInput[] = [{ guestUserId: userId }];
-    if (email) orClauses.push({ guestEmail: email });
     const where: Prisma.BookingWhereInput = {
-      OR: orClauses,
+      ...this.guestBookingWhere(userId, email),
       status: { notIn: [BookingStatus.CANCELLED, BookingStatus.NO_SHOW] },
     };
     const include = {
@@ -326,22 +475,8 @@ export class BookingsService {
    * so the Additional Guests profile screen renders the same set the
    * guest entered during the check-in wizard.
    */
-  async currentStayGuests(userId: string, email?: string | null) {
-    const stay = await this.currentStay(userId, email);
-    if (!stay) return [];
-    return this.prisma.bookingGuest.findMany({
-      where: { bookingId: stay.id },
-      orderBy: { createdAt: 'asc' },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        phone: true,
-        isPrimary: true,
-        hasKids: true,
-        kidsCount: true,
-      },
-    });
+  async currentStayGuests(userId: string, email?: string | null, bookingId?: string) {
+    return this.guestsForStay(userId, email, bookingId);
   }
 
   /**
@@ -353,9 +488,11 @@ export class BookingsService {
   async addCurrentStayGuest(
     userId: string,
     email: string | null | undefined,
-    input: { fullName: string; email?: string; phone?: string; kidsCount?: number },
+    input: { fullName: string; email?: string; phone?: string; kidsCount?: number; bookingId?: string },
   ) {
-    const stay = await this.currentStay(userId, email);
+    const stay = input.bookingId
+      ? await this.assertOwnedStay(userId, email, input.bookingId)
+      : await this.currentStay(userId, email);
     if (!stay) {
       throw new NotFoundException('No active stay to add a guest to');
     }
@@ -421,6 +558,9 @@ export class BookingsService {
     checkInCode: string | null;
     adults: number;
     children: number;
+    nights?: number;
+    source?: BookingSource;
+    arrivalTime?: string | null;
     totalAmount: Prisma.Decimal;
     paidAmount: Prisma.Decimal;
     currency: string;
@@ -439,6 +579,9 @@ export class BookingsService {
       checkInCode: b.checkInCode,
       adults: b.adults,
       children: b.children,
+      nights: b.nights,
+      source: b.source,
+      arrivalTime: b.arrivalTime ?? null,
       totalAmount: Number(b.totalAmount),
       paidAmount: Number(b.paidAmount),
       outstandingAmount: Math.max(0, Number(b.totalAmount) - Number(b.paidAmount)),

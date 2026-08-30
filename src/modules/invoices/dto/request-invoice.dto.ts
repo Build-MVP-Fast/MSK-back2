@@ -24,6 +24,9 @@ export class RequestInvoiceDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(2000)
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  bookingId?: string;
 }
