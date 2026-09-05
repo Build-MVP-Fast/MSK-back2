@@ -362,9 +362,30 @@ export class BookingsService {
         email: true,
         phone: true,
         isPrimary: true,
+        accessLevel: true,
         hasKids: true,
         kidsCount: true,
       },
+    });
+  }
+
+  async updateStayGuestAccessLevel(
+    userId: string,
+    email: string | null | undefined,
+    guestId: string,
+    accessLevel: 'PROFILE_FULL' | 'RESERVATION_PARTIAL' | 'CHAT_ONLY',
+  ) {
+    // Verify the guest belongs to one of the caller's stays
+    const guest = await this.prisma.bookingGuest.findFirst({
+      where: { id: guestId },
+      include: { booking: true },
+    });
+    if (!guest) throw new Error('Guest not found');
+    await this.assertOwnedStay(userId, email, guest.bookingId);
+    return this.prisma.bookingGuest.update({
+      where: { id: guestId },
+      data: { accessLevel: accessLevel as any },
+      select: { id: true, fullName: true, accessLevel: true },
     });
   }
 
@@ -513,6 +534,7 @@ export class BookingsService {
         email: true,
         phone: true,
         isPrimary: true,
+        accessLevel: true,
         hasKids: true,
         kidsCount: true,
       },

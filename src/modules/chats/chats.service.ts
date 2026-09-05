@@ -542,4 +542,17 @@ export class ChatsService {
       });
     }
   }
+
+  /** Update the subject/title of a chat — caller must be a member. */
+  async updateTitle(chatId: string, userId: string, title: string) {
+    const member = await this.prisma.chatMember.findFirst({
+      where: { chatId, userId },
+    });
+    if (!member) throw new Error('Not a member of this chat');
+    return this.prisma.chat.update({
+      where: { id: chatId },
+      data: { title: title.trim() || null },
+      select: { id: true, title: true },
+    });
+  }
 }

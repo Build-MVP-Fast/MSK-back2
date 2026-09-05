@@ -450,6 +450,19 @@ export class BookingsController {
     return this.service.removeCurrentStayGuest(userId, email, id);
   }
 
+  /** Update the access level of a guest on the signed-in user's current stay. */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Patch('me/current-stay/guests/:id/access-level')
+  updateStayGuestAccessLevel(
+    @Param('id') id: string,
+    @Body('accessLevel') accessLevel: 'PROFILE_FULL' | 'RESERVATION_PARTIAL' | 'CHAT_ONLY',
+    @CurrentUser('id') userId: string,
+    @CurrentUser('email') email: string | null,
+  ) {
+    return this.service.updateStayGuestAccessLevel(userId, email, id, accessLevel);
+  }
+
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)

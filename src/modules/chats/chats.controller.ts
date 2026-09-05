@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UploadedFile,
@@ -143,5 +144,15 @@ export class ChatsController {
     @CurrentUser('id') callerId: string,
   ) {
     return this.service.addMember(chatId, callerId, userId);
+  }
+
+  /** Update the subject/title of a chat — both guest and staff can call this. */
+  @Patch(':id/title')
+  updateTitle(
+    @Param('id') chatId: string,
+    @Body('title') title: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.service.updateTitle(chatId, userId, title);
   }
 }

@@ -1053,20 +1053,27 @@ model Booking {
 }
 
 model BookingGuest {
-  id          String   @id @default(uuid())
-  bookingId   String
-  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  fullName    String
-  email       String?
-  phone       String?
-  isPrimary   Boolean  @default(false)
+  id             String           @id @default(uuid())
+  bookingId      String
+  booking        Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  fullName       String
+  email          String?
+  phone          String?
+  isPrimary      Boolean          @default(false)
+  accessLevel    GuestAccessLevel @default(PROFILE_FULL)
   documentNumber String?
-  dateOfBirth DateTime?
-  hasKids     Boolean?
-  kidsCount   Int?
-  createdAt   DateTime @default(now())
+  dateOfBirth    DateTime?
+  hasKids        Boolean?
+  kidsCount      Int?
+  createdAt      DateTime         @default(now())
 
   @@index([bookingId])
+}
+
+enum GuestAccessLevel {
+  PROFILE_FULL
+  RESERVATION_PARTIAL
+  CHAT_ONLY
 }
 
 model BookingPayment {
