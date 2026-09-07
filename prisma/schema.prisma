@@ -595,11 +595,14 @@ model Company {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  users       User[]
-  departments Department[]
-  properties  Property[]
-  costs       Cost[]
-  revenueEntries RevenueEntry[]
+  users           User[]
+  departments     Department[]
+  properties      Property[]
+  costs           Cost[]
+  revenueEntries  RevenueEntry[]
+  subscription    OperatorSubscription?
+  supportTickets  SupportTicket[]
+  suppliers       Supplier[]
 }
 
 model Department {
@@ -2115,6 +2118,70 @@ model Shift {
   notes     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+// ============================================================================
+//  PLATFORM ADMIN — Subscriptions, Support, Suppliers
+// ============================================================================
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
+model OperatorSubscription {
+  id           String             @id @default(uuid())
+  companyId    String             @unique
+  company      Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan         String             @default("Basic")
+  status       SubscriptionStatus @default(TRIAL)
+  amount       Float              @default(0)
+  billingCycle String             @default("monthly")
+  nextBilling  DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+}
+
+model SupportTicket {
+  id         String       @id @default(uuid())
+  companyId  String?
+  company    Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  subject    String
+  body       String
+  fromEmail  String
+  status     TicketStatus @default(OPEN)
+  reply      String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([companyId])
+  @@index([status])
+}
+
+model Supplier {
+  id          String   @id @default(uuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  category    String?
+  contactName String?
+  email       String?
+  phone       String?
+  address     String?
+  notes       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([companyId])
 }

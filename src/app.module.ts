@@ -77,6 +77,9 @@ import { HouseRulesModule } from './modules/house-rules/house-rules.module';
 import { TestimonialsModule } from './modules/testimonials/testimonials.module';
 import { ExpansionCitiesModule } from './modules/expansion-cities/expansion-cities.module';
 import { TestingLocationsModule } from './modules/testing-locations/testing-locations.module';
+import { SuppliersModule } from './modules/suppliers/suppliers.module';
+import { SupportModule } from './modules/support/support.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -160,6 +163,9 @@ import { TestingLocationsModule } from './modules/testing-locations/testing-loca
     TestimonialsModule,
     ExpansionCitiesModule,
     TestingLocationsModule,
+    SuppliersModule,
+    SupportModule,
+    AdminModule,
 
     // Granular permissions (must come AFTER UsersModule + AuthModule so
     // the seed routine can read existing users, but order in the imports
