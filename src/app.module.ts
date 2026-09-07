@@ -80,6 +80,7 @@ import { TestingLocationsModule } from './modules/testing-locations/testing-loca
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { SupportModule } from './modules/support/support.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { AdsModule } from './modules/ads/ads.module';
 
 @Module({
   imports: [
@@ -166,6 +167,7 @@ import { AdminModule } from './modules/admin/admin.module';
     SuppliersModule,
     SupportModule,
     AdminModule,
+    AdsModule,
 
     // Granular permissions (must come AFTER UsersModule + AuthModule so
     // the seed routine can read existing users, but order in the imports

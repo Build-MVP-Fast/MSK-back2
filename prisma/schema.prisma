@@ -2185,3 +2185,23 @@ model Supplier {
 
   @@index([companyId])
 }
+
+// ============================================================================
+//  PLATFORM ADS / BANNERS (Super Admin managed)
+// ============================================================================
+
+model Ad {
+  id          String    @id @default(uuid())
+  title       String
+  imageUrl    String
+  linkUrl     String?
+  description String?
+  isActive    Boolean   @default(true)
+  order       Int       @default(0)
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([isActive, order])
+}
