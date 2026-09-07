@@ -2140,16 +2140,17 @@ enum TicketStatus {
 }
 
 model OperatorSubscription {
-  id           String             @id @default(uuid())
-  companyId    String             @unique
-  company      Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  plan         String             @default("Basic")
-  status       SubscriptionStatus @default(TRIAL)
-  amount       Float              @default(0)
-  billingCycle String             @default("monthly")
-  nextBilling  DateTime?
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  id             String             @id @default(uuid())
+  companyId      String             @unique
+  company        Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan           String             @default("Basic")
+  status         SubscriptionStatus @default(TRIAL)
+  amount         Float              @default(0)
+  billingCycle   String             @default("monthly")
+  nextBilling    DateTime?
+  enabledModules String[]           @default([])  // ["calendar","handbook","messaging","pricing","users","inventory","reports","integrations","website"]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 }
 
 model SupportTicket {
@@ -2204,4 +2205,22 @@ model Ad {
   updatedAt   DateTime  @updatedAt
 
   @@index([isActive, order])
+}
+
+// ============================================================================
+//  PLATFORM INVITES (Super Admin invites)
+// ============================================================================
+
+model PlatformInvite {
+  id          String    @id @default(uuid())
+  email       String
+  role        String    @default("ADMIN")  // SUPER_USER | ADMIN
+  accessPages String[]  @default([])       // e.g. ["operators","guests","analytics"]
+  token       String    @unique @default(uuid())
+  usedAt      DateTime?
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+
+  @@index([email])
+  @@index([token])
 }

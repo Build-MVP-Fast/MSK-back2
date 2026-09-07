@@ -44,7 +44,7 @@ export class HandbookController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.SUPER_USER)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Delete('categories/:id')
   removeCategory(@Param('id') id: string) {
     return this.service.removeCategory(id);
@@ -68,7 +68,7 @@ export class HandbookController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.SUPER_USER)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Delete('items/:id')
   removeItem(@Param('id') id: string) {
     return this.service.removeItem(id);

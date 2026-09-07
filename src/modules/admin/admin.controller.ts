@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -47,5 +47,35 @@ export class AdminController {
   @Patch('subscriptions/:companyId')
   upsertSubscription(@Param('companyId') companyId: string, @Body() dto: any) {
     return this.service.upsertSubscription(companyId, dto);
+  }
+
+  @Patch('subscriptions/:companyId/modules')
+  updateModules(@Param('companyId') companyId: string, @Body() dto: { enabledModules: string[] }) {
+    return this.service.updateSubscriptionModules(companyId, dto.enabledModules);
+  }
+
+  @Delete('operators/:id')
+  deleteOperator(@Param('id') id: string) {
+    return this.service.deleteOperator(id);
+  }
+
+  @Delete('guests/:id')
+  deleteGuest(@Param('id') id: string) {
+    return this.service.deleteGuest(id);
+  }
+
+  @Get('invites')
+  listInvites() {
+    return this.service.listInvites();
+  }
+
+  @Post('invites')
+  createInvite(@Body() dto: { email: string; role?: string; accessPages?: string[] }) {
+    return this.service.createInvite(dto);
+  }
+
+  @Delete('invites/:id')
+  deleteInvite(@Param('id') id: string) {
+    return this.service.deleteInvite(id);
   }
 }

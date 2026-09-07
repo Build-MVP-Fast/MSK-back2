@@ -90,12 +90,44 @@ export class AdminService {
   }
 
   async upsertSubscription(companyId: string, dto: {
-    plan?: string; status?: SubscriptionStatus; amount?: number; billingCycle?: string; nextBilling?: Date;
+    plan?: string; status?: SubscriptionStatus; amount?: number; billingCycle?: string; nextBilling?: Date; enabledModules?: string[];
   }) {
     return this.prisma.operatorSubscription.upsert({
       where: { companyId },
       update: dto,
-      create: { companyId, plan: dto.plan ?? 'Basic', status: dto.status ?? SubscriptionStatus.TRIAL, amount: dto.amount ?? 0, billingCycle: dto.billingCycle ?? 'monthly' },
+      create: { companyId, plan: dto.plan ?? 'Basic', status: dto.status ?? SubscriptionStatus.TRIAL, amount: dto.amount ?? 0, billingCycle: dto.billingCycle ?? 'monthly', enabledModules: dto.enabledModules ?? [] },
     });
+  }
+
+  async updateSubscriptionModules(companyId: string, enabledModules: string[]) {
+    return this.prisma.operatorSubscription.upsert({
+      where: { companyId },
+      update: { enabledModules },
+      create: { companyId, enabledModules, plan: 'Basic', status: SubscriptionStatus.TRIAL, amount: 0, billingCycle: 'monthly' },
+    });
+  }
+
+  // Platform invites
+  createInvite(dto: { email: string; role?: string; accessPages?: string[] }) {
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    return this.prisma.platformInvite.create({
+      data: { email: dto.email, role: dto.role ?? 'ADMIN', accessPages: dto.accessPages ?? [], expiresAt },
+    });
+  }
+
+  listInvites() {
+    return this.prisma.platformInvite.findMany({ orderBy: { createdAt: 'desc' } });
+  }
+
+  async deleteInvite(id: string) {
+    return this.prisma.platformInvite.delete({ where: { id } });
+  }
+
+  async deleteOperator(id: string) {
+    return this.prisma.company.delete({ where: { id } });
+  }
+
+  async deleteGuest(id: string) {
+    return this.prisma.user.delete({ where: { id } });
   }
 }
