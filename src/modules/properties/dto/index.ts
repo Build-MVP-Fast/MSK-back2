@@ -143,6 +143,15 @@ export class UpdatePropertyDto {
   @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
+
+  /** Mews Connector API credentials stored per-property. */
+  @IsOptional()
+  @IsString()
+  mewsAccessToken?: string;
+
+  @IsOptional()
+  @IsString()
+  mewsEnterpriseId?: string;
 }
 
 export class PropertyFilterDto {

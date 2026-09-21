@@ -240,6 +240,63 @@ export class MewsSyncService {
     return { propertyId, fetched: Reservations.length, upserted };
   }
 
+  /** Return whether the global Mews CLIENT_TOKEN env is configured. */
+  getConfig() {
+    return {
+      clientTokenConfigured: mewsConfigured(),
+      baseUrl: process.env.MEWS_CONNECTOR_BASE_URL ?? "https://api.mews-demo.com/api/connector/v1",
+      isDemo: !process.env.MEWS_CONNECTOR_BASE_URL,
+      clientName: process.env.MEWS_CLIENT ?? process.env.MEWS_CLIENT_NAME ?? "MSK Guestbook",
+    };
+  }
+
+  /** Return connection status for one or all Mews-backed properties. */
+  async getStatus(propertyId?: string) {
+    const where = propertyId ? { id: propertyId } : undefined;
+    const properties = await this.prisma.property.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        mewsAccessToken: true,
+        mewsEnterpriseId: true,
+      },
+    });
+    return properties.map((p) => ({
+      propertyId: p.id,
+      propertyName: p.name,
+      connected: !!(p.mewsAccessToken || this.resolveCreds(p) !== null),
+      hasAccessToken: !!p.mewsAccessToken,
+      hasEnterpriseId: !!p.mewsEnterpriseId,
+      // Mask the token for security — only show last 6 chars
+      maskedToken: p.mewsAccessToken
+        ? "••••••••" + p.mewsAccessToken.slice(-6)
+        : null,
+    }));
+  }
+
+  /** Persist Mews credentials onto a property record. */
+  async saveCredentials(
+    propertyId: string,
+    accessToken: string,
+    enterpriseId?: string,
+  ) {
+    const updated = await this.prisma.property.update({
+      where: { id: propertyId },
+      data: {
+        mewsAccessToken: accessToken || null,
+        mewsEnterpriseId: enterpriseId || null,
+      },
+      select: { id: true, name: true, mewsEnterpriseId: true },
+    });
+    return {
+      propertyId: updated.id,
+      propertyName: updated.name,
+      connected: !!accessToken,
+    };
+  }
+
   /**
    * Write a completed app check-in back to Mews so the client's PMS shows
    * the guest as arrived. Best-effort: never throws into the check-in flow.
