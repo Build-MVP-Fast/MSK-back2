@@ -39,6 +39,16 @@ export class AdminController {
     return this.service.properties();
   }
 
+  @Post('properties/:id/archive')
+  archiveProperty(@Param('id') id: string) {
+    return this.service.archiveProperty(id);
+  }
+
+  @Post('properties/:id/publish')
+  publishProperty(@Param('id') id: string) {
+    return this.service.publishProperty(id);
+  }
+
   @Get('subscriptions')
   subscriptions() {
     return this.service.subscriptions();

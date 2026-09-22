@@ -78,6 +78,20 @@ export class AdminService {
     });
   }
 
+  archiveProperty(id: string) {
+    return this.prisma.property.update({
+      where: { id },
+      data: { status: 'ARCHIVED' as any },
+    });
+  }
+
+  publishProperty(id: string) {
+    return this.prisma.property.update({
+      where: { id },
+      data: { status: 'ACTIVE' as any },
+    });
+  }
+
   subscriptions() {
     return this.prisma.operatorSubscription.findMany({
       include: { company: { select: { id: true, name: true, email: true } } },
