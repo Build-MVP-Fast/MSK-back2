@@ -327,6 +327,65 @@ export class ReportsService {
     };
   }
 
+  /** Platform-level stats for the Super Admin analytics page. */
+  async platformAnalytics() {
+    const now = new Date();
+    const startOf6Months = new Date(now);
+    startOf6Months.setMonth(startOf6Months.getMonth() - 5);
+    startOf6Months.setDate(1);
+    startOf6Months.setHours(0, 0, 0, 0);
+
+    const [
+      totalOperators,
+      totalGuests,
+      totalBookings,
+      activeSubscriptions,
+      openTickets,
+      revenueResult,
+    ] = await Promise.all([
+      this.prisma.company.count(),
+      this.prisma.user.count({ where: { role: UserRole.WEB_GUEST } }),
+      this.prisma.booking.count(),
+      this.prisma.operatorSubscription.count({ where: { status: 'ACTIVE' } }),
+      this.prisma.supportTicket.count({ where: { status: 'OPEN' } }),
+      this.prisma.booking.aggregate({ _sum: { totalAmount: true } }),
+    ]);
+
+    // Build 6-month booking trend
+    const months: { month: string; bookings: number; revenue: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const start = new Date(now);
+      start.setMonth(start.getMonth() - i);
+      start.setDate(1);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setMonth(end.getMonth() + 1);
+      const label = start.toLocaleString('en-GB', { month: 'short', year: '2-digit' });
+
+      const [count, rev] = await Promise.all([
+        this.prisma.booking.count({ where: { createdAt: { gte: start, lt: end } } }),
+        this.prisma.booking.aggregate({
+          where: { createdAt: { gte: start, lt: end } },
+          _sum: { totalAmount: true },
+        }),
+      ]);
+      months.push({ month: label, bookings: count, revenue: Number(rev._sum.totalAmount ?? 0) });
+    }
+
+    return {
+      totals: {
+        totalOperators,
+        totalGuests,
+        totalBookings,
+        activeSubscriptions,
+        openTickets,
+        totalRevenue: Number(revenueResult._sum.totalAmount ?? 0),
+      },
+      bookingsByMonth: months.map((m) => ({ month: m.month, value: m.bookings })),
+      revenueByMonth: months.map((m) => ({ month: m.month, value: m.revenue })),
+    };
+  }
+
   /** 7-point series: completed task count per day for the last `days`
    *  days, oldest first. Scoped to companyId + optional departmentId. */
   private async dailyCompletedSeries(days: number, companyId?: string, departmentId?: string) {

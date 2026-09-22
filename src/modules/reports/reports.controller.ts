@@ -49,6 +49,12 @@ export class ReportsController {
    *    completion rate (% completed within the last 30 days)
    *  - performanceRate: average completion rate over the last 30 days
    */
+  @Roles(UserRole.SUPER_USER)
+  @Get('platform-analytics')
+  platformAnalytics() {
+    return this.service.platformAnalytics();
+  }
+
   @Roles(UserRole.ADMIN, UserRole.SUPER_USER)
   @Get('admin-charts')
   adminCharts(
