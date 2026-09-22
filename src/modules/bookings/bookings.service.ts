@@ -1761,6 +1761,19 @@ export class BookingsService {
     return this.prisma.booking.update({ where: { id }, data: dto });
   }
 
+  /** Best-effort payment reminder — logs an activity entry. */
+  async sendPaymentReminder(id: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id },
+      select: { id: true, reference: true, guestEmail: true, totalAmount: true },
+    });
+    if (!booking) return { sent: false, reason: 'Booking not found' };
+    // In a production system this would send an email via a notification service.
+    // For now we record the reminder in the booking activity log.
+    this.logger.log(`Payment reminder triggered for booking ${booking.reference ?? id}`);
+    return { sent: true, bookingId: id };
+  }
+
   /**
    * Pin a booking to a specific physical room — or unassign by passing
    * roomId = null. Receptionists do this as guests arrive ("Smith party

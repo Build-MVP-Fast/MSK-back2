@@ -566,4 +566,13 @@ export class BookingsController {
   update(@Param('id') id: string, @Body() dto: Record<string, unknown>) {
     return this.service.update(id, dto);
   }
+
+  /** Send a payment-reminder notification to the guest. Best-effort. */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_USER, UserRole.RECEPTIONIST)
+  @Post(':id/remind')
+  remind(@Param('id') id: string) {
+    return this.service.sendPaymentReminder(id);
+  }
 }

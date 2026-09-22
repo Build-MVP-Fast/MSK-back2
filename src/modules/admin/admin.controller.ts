@@ -59,6 +59,24 @@ export class AdminController {
     return this.service.deleteOperator(id);
   }
 
+  /** Send a platform message to an operator (stored as support ticket). */
+  @Post('operators/:id/message')
+  messageOperator(
+    @Param('id') id: string,
+    @Body() dto: { message: string },
+  ) {
+    return this.service.messageOperator(id, dto.message);
+  }
+
+  /** Update enabled modules for an operator (alias for subscriptions endpoint). */
+  @Patch('operators/:id/modules')
+  updateOperatorModules(
+    @Param('id') id: string,
+    @Body() dto: { enabledModules: string[] },
+  ) {
+    return this.service.updateSubscriptionModules(id, dto.enabledModules);
+  }
+
   @Delete('guests/:id')
   deleteGuest(@Param('id') id: string) {
     return this.service.deleteGuest(id);

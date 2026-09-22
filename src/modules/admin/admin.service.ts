@@ -130,4 +130,25 @@ export class AdminService {
   async deleteGuest(id: string) {
     return this.prisma.user.delete({ where: { id } });
   }
+
+  /**
+   * Send a platform message to an operator.
+   * Creates a support ticket on their behalf so it appears in the support queue.
+   */
+  async messageOperator(companyId: string, message: string) {
+    // Find the primary admin user for this company
+    const admin = await this.prisma.user.findFirst({
+      where: { companyId, role: 'ADMIN' },
+      select: { id: true, email: true },
+    });
+    return this.prisma.supportTicket.create({
+      data: {
+        subject: 'Message from Super Admin',
+        body: message,
+        fromEmail: admin?.email ?? 'superadmin@mskguestbook.com',
+        status: 'OPEN',
+        companyId,
+      },
+    });
+  }
 }
