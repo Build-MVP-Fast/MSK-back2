@@ -45,7 +45,7 @@ export class AdminService {
     return this.prisma.company.findMany({
       include: {
         _count: { select: { properties: true, users: true } },
-        subscription: { select: { plan: true, status: true, amount: true } },
+        subscription: { select: { plan: true, status: true, amount: true, enabledModules: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -70,7 +70,16 @@ export class AdminService {
 
   properties() {
     return this.prisma.property.findMany({
-      include: {
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        city: true,
+        country: true,
+        status: true,
+        createdAt: true,
+        mewsAccessToken: true,
+        mewsEnterpriseId: true,
         company: { select: { id: true, name: true } },
         _count: { select: { rooms: true } },
       },
