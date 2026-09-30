@@ -12,6 +12,9 @@ const CLIENT_TOKEN = process.env.MEWS_CLIENT_TOKEN ?? "";
 const CLIENT_NAME =
   process.env.MEWS_CLIENT ?? process.env.MEWS_CLIENT_NAME ?? "MSK Guestbook";
 
+/** Maximum time to wait for a single Mews API call (5 minutes). */
+const MEWS_TIMEOUT_MS = 5 * 60 * 1000;
+
 export interface MewsReservation {
   Id: string;
   Number?: string;
@@ -46,16 +49,34 @@ async function mewsPost<T>(
   if (!CLIENT_TOKEN || !accessToken) {
     throw new Error("Mews credentials not configured");
   }
-  const res = await fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ClientToken: CLIENT_TOKEN,
-      AccessToken: accessToken,
-      Client: CLIENT_NAME,
-      ...body,
-    }),
-  });
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), MEWS_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        ClientToken: CLIENT_TOKEN,
+        AccessToken: accessToken,
+        Client: CLIENT_NAME,
+        ...body,
+      }),
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        `Mews ${path} timed out after ${MEWS_TIMEOUT_MS / 1000}s`,
+      );
+    }
+    throw err;
+  }
+  clearTimeout(timer);
+
   const text = await res.text();
   if (!res.ok) {
     throw new Error(`Mews ${path} ${res.status}: ${text.slice(0, 300)}`);
@@ -67,7 +88,8 @@ async function mewsPost<T>(
 export async function reservationsGetAll(
   accessToken: string,
   opts: { enterpriseId?: string; startUtc: string; endUtc: string },
-): Promise<{ Reservations: MewsReservation[]; Customers: MewsCustomer[] }> {
+): Promise<{ Reservations: MewsReservation[]; Customers: MewsCustomer[]; elapsedMs: number }> {
+  const start = Date.now();
   const body: Record<string, unknown> = {
     StartUtc: opts.startUtc,
     EndUtc: opts.endUtc,
@@ -83,6 +105,7 @@ export async function reservationsGetAll(
   return {
     Reservations: data.Reservations ?? [],
     Customers: data.Customers ?? [],
+    elapsedMs: Date.now() - start,
   };
 }
 

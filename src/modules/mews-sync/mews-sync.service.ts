@@ -64,11 +64,16 @@ export class MewsSyncService {
   @Cron(CronExpression.EVERY_30_MINUTES)
   async scheduledSync() {
     if (!mewsConfigured()) return;
+    const t0 = Date.now();
+    this.logger.log("Mews scheduled sync — starting");
     try {
-      await this.syncAll();
+      const result = await this.syncAll();
+      this.logger.log(
+        `Mews scheduled sync — done in ${Date.now() - t0}ms | properties=${result.properties} upserted=${result.totalUpserted} errors=${result.errors}`,
+      );
     } catch (e) {
       this.logger.warn(
-        `Scheduled Mews sync failed: ${e instanceof Error ? e.message : String(e)}`,
+        `Mews scheduled sync — fatal error after ${Date.now() - t0}ms: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
   }
@@ -99,31 +104,52 @@ export class MewsSyncService {
     return { accessToken, enterpriseId };
   }
 
+  /**
+   * Sync all Mews-backed properties in parallel (Promise.allSettled).
+   * Each property is independent — a failure on one never blocks the others.
+   */
   async syncAll() {
     const properties = await this.prisma.property.findMany({
       select: {
         id: true,
+        name: true,
         slug: true,
         mewsAccessToken: true,
         mewsEnterpriseId: true,
       },
     });
     const targets = properties.filter((p) => this.resolveCreds(p) !== null);
-    const results = [];
-    for (const p of targets) {
-      try {
-        results.push(await this.syncProperty(p.id));
-      } catch (e) {
-        this.logger.warn(
-          `Mews sync failed for property ${p.id}: ${e instanceof Error ? e.message : String(e)}`,
+
+    this.logger.log(`Mews syncAll — ${targets.length} propert${targets.length === 1 ? "y" : "ies"} to sync`);
+
+    // Run all property syncs in parallel — failures are isolated
+    const settled = await Promise.allSettled(
+      targets.map((p) => this.syncProperty(p.id).then((r) => ({ ...r, propertyName: p.name }))),
+    );
+
+    let totalUpserted = 0;
+    let errors = 0;
+    const results = settled.map((s, i) => {
+      if (s.status === "fulfilled") {
+        totalUpserted += s.value.upserted;
+        this.logger.log(
+          `  ✓ ${targets[i].name} — fetched=${s.value.fetched} upserted=${s.value.upserted} elapsedMs=${s.value.elapsedMs}`,
         );
-        results.push({ propertyId: p.id, error: String(e) });
+        return s.value;
+      } else {
+        errors++;
+        this.logger.warn(
+          `  ✗ ${targets[i].name} — ${s.reason instanceof Error ? s.reason.message : String(s.reason)}`,
+        );
+        return { propertyId: targets[i].id, propertyName: targets[i].name, error: String(s.reason) };
       }
-    }
-    return { properties: targets.length, results };
+    });
+
+    return { properties: targets.length, totalUpserted, errors, results };
   }
 
   async syncProperty(propertyId: string) {
+    const t0 = Date.now();
     const property = await this.prisma.property.findUnique({
       where: { id: propertyId },
     });
@@ -146,9 +172,14 @@ export class MewsSyncService {
 
     const resById = new Map<string, MewsReservation>();
     const custById = new Map<string, MewsCustomer>();
-    const merge = (rs: MewsReservation[], cs: MewsCustomer[]) => {
+    let totalApiMs = 0;
+    let apiCalls = 0;
+
+    const merge = (rs: MewsReservation[], cs: MewsCustomer[], elapsed: number) => {
       for (const r of rs) resById.set(r.Id, r);
       for (const c of cs) custById.set(c.Id, c);
+      totalApiMs += elapsed;
+      apiCalls++;
     };
 
     try {
@@ -157,9 +188,11 @@ export class MewsSyncService {
         startUtc: new Date(rangeStart).toISOString(),
         endUtc: new Date(rangeEnd).toISOString(),
       });
-      merge(one.Reservations, one.Customers);
+      merge(one.Reservations, one.Customers, one.elapsedMs);
     } catch (err) {
       if (!/interval must not exceed/i.test(String(err))) throw err;
+      // Chunked fallback for enterprises with strict interval caps
+      this.logger.debug(`${property.name}: interval cap hit — falling back to ${SAFE_CHUNK_MS / 3600000}h chunks`);
       for (let s = rangeStart; s < rangeEnd; s += SAFE_CHUNK_MS) {
         const e = Math.min(s + SAFE_CHUNK_MS, rangeEnd);
         const part = await reservationsGetAll(accessToken, {
@@ -167,9 +200,10 @@ export class MewsSyncService {
           startUtc: new Date(s).toISOString(),
           endUtc: new Date(e).toISOString(),
         });
-        merge(part.Reservations, part.Customers);
+        merge(part.Reservations, part.Customers, part.elapsedMs);
       }
     }
+
     const Reservations = [...resById.values()];
     let upserted = 0;
 
@@ -237,7 +271,12 @@ export class MewsSyncService {
       upserted++;
     }
 
-    return { propertyId, fetched: Reservations.length, upserted };
+    const elapsedMs = Date.now() - t0;
+    this.logger.debug(
+      `syncProperty ${property.name} — fetched=${Reservations.length} upserted=${upserted} apiCalls=${apiCalls} avgApiMs=${apiCalls ? Math.round(totalApiMs / apiCalls) : 0} totalMs=${elapsedMs}`,
+    );
+
+    return { propertyId, fetched: Reservations.length, upserted, elapsedMs, apiCalls, avgApiMs: apiCalls ? Math.round(totalApiMs / apiCalls) : 0 };
   }
 
   /** Return whether the global Mews CLIENT_TOKEN env is configured. */
@@ -302,10 +341,11 @@ export class MewsSyncService {
    * the guest as arrived. Best-effort: never throws into the check-in flow.
    */
   async pushCheckIn(bookingId: string): Promise<void> {
+    const t0 = Date.now();
     try {
       const booking = await this.prisma.booking.findUnique({
         where: { id: bookingId },
-        select: { externalId: true, property: { select: { mewsEnterpriseId: true, mewsAccessToken: true } } },
+        select: { externalId: true, property: { select: { name: true, mewsEnterpriseId: true, mewsAccessToken: true } } },
       });
       const prop = booking?.property;
       if (!booking?.externalId || !prop) return;
@@ -314,11 +354,12 @@ export class MewsSyncService {
       const accessToken = prop.mewsAccessToken || process.env.MEWS_ACCESS_TOKEN || "";
       if (!accessToken) return;
       await reservationStart(accessToken, booking.externalId);
+      this.logger.log(
+        `Mews check-in write-back OK — booking=${bookingId} property=${prop.name} elapsedMs=${Date.now() - t0}`,
+      );
     } catch (e) {
       this.logger.warn(
-        `Mews check-in write-back failed for booking ${bookingId}: ${
-          e instanceof Error ? e.message : String(e)
-        }`,
+        `Mews check-in write-back failed — booking=${bookingId} elapsedMs=${Date.now() - t0} error=${e instanceof Error ? e.message : String(e)}`,
       );
     }
   }
