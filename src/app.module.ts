@@ -72,6 +72,7 @@ import { PropertyTermsModule } from './modules/property-terms/property-terms.mod
 import { HandbookDocumentsModule } from './modules/handbook-documents/handbook-documents.module';
 import { AppAccessModule } from './modules/app-access/app-access.module';
 import { MewsSyncModule } from './modules/mews-sync/mews-sync.module';
+import { AdsModule } from './modules/ads/ads.module';
 import { FaqsModule } from './modules/faqs/faqs.module';
 import { HouseRulesModule } from './modules/house-rules/house-rules.module';
 import { TestimonialsModule } from './modules/testimonials/testimonials.module';
@@ -155,6 +156,7 @@ import { TestingLocationsModule } from './modules/testing-locations/testing-loca
     HandbookDocumentsModule,
     AppAccessModule,
     MewsSyncModule,
+    AdsModule,
     FaqsModule,
     HouseRulesModule,
     TestimonialsModule,
