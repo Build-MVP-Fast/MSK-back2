@@ -12,8 +12,14 @@ const CLIENT_TOKEN = process.env.MEWS_CLIENT_TOKEN ?? "";
 const CLIENT_NAME =
   process.env.MEWS_CLIENT ?? process.env.MEWS_CLIENT_NAME ?? "MSK Guestbook";
 
-/** Maximum time to wait for a single Mews API call (5 minutes). */
-const MEWS_TIMEOUT_MS = 5 * 60 * 1000;
+export interface MewsSpace {
+  Id: string;
+  /** Physical room / unit number, e.g. "101" — matches Room.number locally. */
+  Number?: string;
+  Name?: string;
+  FloorNumber?: number;
+  SpaceCategoryId?: string;
+}
 
 export interface MewsReservation {
   Id: string;
@@ -27,6 +33,10 @@ export interface MewsReservation {
   AdultCount?: number;
   ChildCount?: number;
   PersonCounts?: { AgeCategoryId?: string; Count?: number }[];
+  /** Older Connector API versions use AssignedSpaceId. */
+  AssignedSpaceId?: string;
+  /** Newer Connector API versions use AssignedResourceId. */
+  AssignedResourceId?: string;
 }
 
 export interface MewsCustomer {
@@ -49,34 +59,16 @@ async function mewsPost<T>(
   if (!CLIENT_TOKEN || !accessToken) {
     throw new Error("Mews credentials not configured");
   }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), MEWS_TIMEOUT_MS);
-
-  let res: Response;
-  try {
-    res = await fetch(`${BASE}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({
-        ClientToken: CLIENT_TOKEN,
-        AccessToken: accessToken,
-        Client: CLIENT_NAME,
-        ...body,
-      }),
-    });
-  } catch (err) {
-    clearTimeout(timer);
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(
-        `Mews ${path} timed out after ${MEWS_TIMEOUT_MS / 1000}s`,
-      );
-    }
-    throw err;
-  }
-  clearTimeout(timer);
-
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ClientToken: CLIENT_TOKEN,
+      AccessToken: accessToken,
+      Client: CLIENT_NAME,
+      ...body,
+    }),
+  });
   const text = await res.text();
   if (!res.ok) {
     throw new Error(`Mews ${path} ${res.status}: ${text.slice(0, 300)}`);
@@ -84,28 +76,36 @@ async function mewsPost<T>(
   return (text ? JSON.parse(text) : {}) as T;
 }
 
-/** Reservations colliding with a UTC window, with their customers. */
+/**
+ * Reservations colliding with a UTC window, with their customers and spaces.
+ * Spaces are included so the sync can map AssignedSpaceId/AssignedResourceId
+ * back to a local Room via the Space.Number → Room.number match.
+ */
 export async function reservationsGetAll(
   accessToken: string,
   opts: { enterpriseId?: string; startUtc: string; endUtc: string },
-): Promise<{ Reservations: MewsReservation[]; Customers: MewsCustomer[]; elapsedMs: number }> {
-  const start = Date.now();
+): Promise<{
+  Reservations: MewsReservation[];
+  Customers: MewsCustomer[];
+  Spaces: MewsSpace[];
+}> {
   const body: Record<string, unknown> = {
     StartUtc: opts.startUtc,
     EndUtc: opts.endUtc,
     TimeFilter: "Colliding",
-    Extent: { Reservations: true, Customers: true },
+    Extent: { Reservations: true, Customers: true, Spaces: true },
     Limitation: { Count: 1000 },
   };
   if (opts.enterpriseId) body.EnterpriseIds = [opts.enterpriseId];
   const data = await mewsPost<{
     Reservations?: MewsReservation[];
     Customers?: MewsCustomer[];
+    Spaces?: MewsSpace[];
   }>("/reservations/getAll", accessToken, body);
   return {
     Reservations: data.Reservations ?? [],
     Customers: data.Customers ?? [],
-    elapsedMs: Date.now() - start,
+    Spaces: data.Spaces ?? [],
   };
 }
 

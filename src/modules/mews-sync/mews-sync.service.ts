@@ -14,6 +14,7 @@ import {
   reservationStart,
   type MewsReservation,
   type MewsCustomer,
+  type MewsSpace,
 } from "./mews-connector";
 
 function mapState(state: string | undefined): BookingStatus {
@@ -64,16 +65,11 @@ export class MewsSyncService {
   @Cron(CronExpression.EVERY_30_MINUTES)
   async scheduledSync() {
     if (!mewsConfigured()) return;
-    const t0 = Date.now();
-    this.logger.log("Mews scheduled sync — starting");
     try {
-      const result = await this.syncAll();
-      this.logger.log(
-        `Mews scheduled sync — done in ${Date.now() - t0}ms | properties=${result.properties} upserted=${result.totalUpserted} errors=${result.errors}`,
-      );
+      await this.syncAll();
     } catch (e) {
       this.logger.warn(
-        `Mews scheduled sync — fatal error after ${Date.now() - t0}ms: ${e instanceof Error ? e.message : String(e)}`,
+        `Scheduled Mews sync failed: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
   }
@@ -104,52 +100,31 @@ export class MewsSyncService {
     return { accessToken, enterpriseId };
   }
 
-  /**
-   * Sync all Mews-backed properties in parallel (Promise.allSettled).
-   * Each property is independent — a failure on one never blocks the others.
-   */
   async syncAll() {
     const properties = await this.prisma.property.findMany({
       select: {
         id: true,
-        name: true,
         slug: true,
         mewsAccessToken: true,
         mewsEnterpriseId: true,
       },
     });
     const targets = properties.filter((p) => this.resolveCreds(p) !== null);
-
-    this.logger.log(`Mews syncAll — ${targets.length} propert${targets.length === 1 ? "y" : "ies"} to sync`);
-
-    // Run all property syncs in parallel — failures are isolated
-    const settled = await Promise.allSettled(
-      targets.map((p) => this.syncProperty(p.id).then((r) => ({ ...r, propertyName: p.name }))),
-    );
-
-    let totalUpserted = 0;
-    let errors = 0;
-    const results = settled.map((s, i) => {
-      if (s.status === "fulfilled") {
-        totalUpserted += s.value.upserted;
-        this.logger.log(
-          `  ✓ ${targets[i].name} — fetched=${s.value.fetched} upserted=${s.value.upserted} elapsedMs=${s.value.elapsedMs}`,
-        );
-        return s.value;
-      } else {
-        errors++;
+    const results = [];
+    for (const p of targets) {
+      try {
+        results.push(await this.syncProperty(p.id));
+      } catch (e) {
         this.logger.warn(
-          `  ✗ ${targets[i].name} — ${s.reason instanceof Error ? s.reason.message : String(s.reason)}`,
+          `Mews sync failed for property ${p.id}: ${e instanceof Error ? e.message : String(e)}`,
         );
-        return { propertyId: targets[i].id, propertyName: targets[i].name, error: String(s.reason) };
+        results.push({ propertyId: p.id, error: String(e) });
       }
-    });
-
-    return { properties: targets.length, totalUpserted, errors, results };
+    }
+    return { properties: targets.length, results };
   }
 
   async syncProperty(propertyId: string) {
-    const t0 = Date.now();
     const property = await this.prisma.property.findUnique({
       where: { id: propertyId },
     });
@@ -172,14 +147,15 @@ export class MewsSyncService {
 
     const resById = new Map<string, MewsReservation>();
     const custById = new Map<string, MewsCustomer>();
-    let totalApiMs = 0;
-    let apiCalls = 0;
-
-    const merge = (rs: MewsReservation[], cs: MewsCustomer[], elapsed: number) => {
+    const spaceById = new Map<string, MewsSpace>();
+    const merge = (
+      rs: MewsReservation[],
+      cs: MewsCustomer[],
+      ss: MewsSpace[],
+    ) => {
       for (const r of rs) resById.set(r.Id, r);
       for (const c of cs) custById.set(c.Id, c);
-      totalApiMs += elapsed;
-      apiCalls++;
+      for (const s of ss) spaceById.set(s.Id, s);
     };
 
     try {
@@ -188,11 +164,9 @@ export class MewsSyncService {
         startUtc: new Date(rangeStart).toISOString(),
         endUtc: new Date(rangeEnd).toISOString(),
       });
-      merge(one.Reservations, one.Customers, one.elapsedMs);
+      merge(one.Reservations, one.Customers, one.Spaces);
     } catch (err) {
       if (!/interval must not exceed/i.test(String(err))) throw err;
-      // Chunked fallback for enterprises with strict interval caps
-      this.logger.debug(`${property.name}: interval cap hit — falling back to ${SAFE_CHUNK_MS / 3600000}h chunks`);
       for (let s = rangeStart; s < rangeEnd; s += SAFE_CHUNK_MS) {
         const e = Math.min(s + SAFE_CHUNK_MS, rangeEnd);
         const part = await reservationsGetAll(accessToken, {
@@ -200,11 +174,32 @@ export class MewsSyncService {
           startUtc: new Date(s).toISOString(),
           endUtc: new Date(e).toISOString(),
         });
-        merge(part.Reservations, part.Customers, part.elapsedMs);
+        merge(part.Reservations, part.Customers, part.Spaces);
       }
     }
-
     const Reservations = [...resById.values()];
+
+    // Build a mewsSpaceId → local Room.id lookup so synced bookings land on
+    // the correct calendar row. We match on room number (Space.Number ===
+    // Room.number) — no schema migration needed.
+    const localRooms = await this.prisma.room.findMany({
+      where: { propertyId: property.id },
+      select: { id: true, number: true },
+    });
+    const roomIdByNumber = new Map<string, string>();
+    for (const room of localRooms) {
+      roomIdByNumber.set(room.number.trim(), room.id);
+    }
+
+    const resolveRoomId = (r: MewsReservation): string | null => {
+      // Support both old (AssignedSpaceId) and new (AssignedResourceId) field.
+      const spaceId = r.AssignedResourceId ?? r.AssignedSpaceId;
+      if (!spaceId) return null;
+      const space = spaceById.get(spaceId);
+      if (!space?.Number) return null;
+      return roomIdByNumber.get(space.Number.trim()) ?? null;
+    };
+
     let upserted = 0;
 
     for (const r of Reservations) {
@@ -235,6 +230,8 @@ export class MewsSyncService {
         (existing.status === BookingStatus.CHECKED_IN ||
           existing.status === BookingStatus.CHECKED_OUT);
 
+      const resolvedRoomId = resolveRoomId(r);
+
       const common = {
         guestFirstName: cust?.FirstName ?? null,
         guestLastName: cust?.LastName ?? null,
@@ -253,6 +250,9 @@ export class MewsSyncService {
           where: { reference: ref },
           data: {
             ...common,
+            // Only overwrite roomId when Mews has a room assigned — never
+            // null-out a manual assignment made in the operator calendar.
+            ...(resolvedRoomId ? { roomId: resolvedRoomId } : {}),
             ...(locallyAdvanced ? {} : { status: mewsStatus }),
           },
         });
@@ -264,6 +264,7 @@ export class MewsSyncService {
             source: BookingSource.OTHER,
             status: mewsStatus,
             totalAmount: 0,
+            roomId: resolvedRoomId,
             ...common,
           },
         });
@@ -271,69 +272,7 @@ export class MewsSyncService {
       upserted++;
     }
 
-    const elapsedMs = Date.now() - t0;
-    this.logger.debug(
-      `syncProperty ${property.name} — fetched=${Reservations.length} upserted=${upserted} apiCalls=${apiCalls} avgApiMs=${apiCalls ? Math.round(totalApiMs / apiCalls) : 0} totalMs=${elapsedMs}`,
-    );
-
-    return { propertyId, fetched: Reservations.length, upserted, elapsedMs, apiCalls, avgApiMs: apiCalls ? Math.round(totalApiMs / apiCalls) : 0 };
-  }
-
-  /** Return whether the global Mews CLIENT_TOKEN env is configured. */
-  getConfig() {
-    return {
-      clientTokenConfigured: mewsConfigured(),
-      baseUrl: process.env.MEWS_CONNECTOR_BASE_URL ?? "https://api.mews-demo.com/api/connector/v1",
-      isDemo: !process.env.MEWS_CONNECTOR_BASE_URL,
-      clientName: process.env.MEWS_CLIENT ?? process.env.MEWS_CLIENT_NAME ?? "MSK Guestbook",
-    };
-  }
-
-  /** Return connection status for one or all Mews-backed properties. */
-  async getStatus(propertyId?: string) {
-    const where = propertyId ? { id: propertyId } : undefined;
-    const properties = await this.prisma.property.findMany({
-      where,
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        mewsAccessToken: true,
-        mewsEnterpriseId: true,
-      },
-    });
-    return properties.map((p) => ({
-      propertyId: p.id,
-      propertyName: p.name,
-      connected: !!(p.mewsAccessToken || this.resolveCreds(p) !== null),
-      hasAccessToken: !!p.mewsAccessToken,
-      hasEnterpriseId: !!p.mewsEnterpriseId,
-      // Mask the token for security — only show last 6 chars
-      maskedToken: p.mewsAccessToken
-        ? "••••••••" + p.mewsAccessToken.slice(-6)
-        : null,
-    }));
-  }
-
-  /** Persist Mews credentials onto a property record. */
-  async saveCredentials(
-    propertyId: string,
-    accessToken: string,
-    enterpriseId?: string,
-  ) {
-    const updated = await this.prisma.property.update({
-      where: { id: propertyId },
-      data: {
-        mewsAccessToken: accessToken || null,
-        mewsEnterpriseId: enterpriseId || null,
-      },
-      select: { id: true, name: true, mewsEnterpriseId: true },
-    });
-    return {
-      propertyId: updated.id,
-      propertyName: updated.name,
-      connected: !!accessToken,
-    };
+    return { propertyId, fetched: Reservations.length, upserted };
   }
 
   /**
@@ -341,11 +280,10 @@ export class MewsSyncService {
    * the guest as arrived. Best-effort: never throws into the check-in flow.
    */
   async pushCheckIn(bookingId: string): Promise<void> {
-    const t0 = Date.now();
     try {
       const booking = await this.prisma.booking.findUnique({
         where: { id: bookingId },
-        select: { externalId: true, property: { select: { name: true, mewsEnterpriseId: true, mewsAccessToken: true } } },
+        select: { externalId: true, property: { select: { mewsEnterpriseId: true, mewsAccessToken: true } } },
       });
       const prop = booking?.property;
       if (!booking?.externalId || !prop) return;
@@ -354,12 +292,11 @@ export class MewsSyncService {
       const accessToken = prop.mewsAccessToken || process.env.MEWS_ACCESS_TOKEN || "";
       if (!accessToken) return;
       await reservationStart(accessToken, booking.externalId);
-      this.logger.log(
-        `Mews check-in write-back OK — booking=${bookingId} property=${prop.name} elapsedMs=${Date.now() - t0}`,
-      );
     } catch (e) {
       this.logger.warn(
-        `Mews check-in write-back failed — booking=${bookingId} elapsedMs=${Date.now() - t0} error=${e instanceof Error ? e.message : String(e)}`,
+        `Mews check-in write-back failed for booking ${bookingId}: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
       );
     }
   }
