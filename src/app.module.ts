@@ -72,16 +72,11 @@ import { PropertyTermsModule } from './modules/property-terms/property-terms.mod
 import { HandbookDocumentsModule } from './modules/handbook-documents/handbook-documents.module';
 import { AppAccessModule } from './modules/app-access/app-access.module';
 import { MewsSyncModule } from './modules/mews-sync/mews-sync.module';
-import { PricingModule } from './modules/pricing/pricing.module';
 import { FaqsModule } from './modules/faqs/faqs.module';
 import { HouseRulesModule } from './modules/house-rules/house-rules.module';
 import { TestimonialsModule } from './modules/testimonials/testimonials.module';
 import { ExpansionCitiesModule } from './modules/expansion-cities/expansion-cities.module';
 import { TestingLocationsModule } from './modules/testing-locations/testing-locations.module';
-import { SuppliersModule } from './modules/suppliers/suppliers.module';
-import { SupportModule } from './modules/support/support.module';
-import { AdminModule } from './modules/admin/admin.module';
-import { AdsModule } from './modules/ads/ads.module';
 
 @Module({
   imports: [
@@ -160,16 +155,11 @@ import { AdsModule } from './modules/ads/ads.module';
     HandbookDocumentsModule,
     AppAccessModule,
     MewsSyncModule,
-    PricingModule,
     FaqsModule,
     HouseRulesModule,
     TestimonialsModule,
     ExpansionCitiesModule,
     TestingLocationsModule,
-    SuppliersModule,
-    SupportModule,
-    AdminModule,
-    AdsModule,
 
     // Granular permissions (must come AFTER UsersModule + AuthModule so
     // the seed routine can read existing users, but order in the imports
