@@ -645,9 +645,32 @@ export class BookingsService {
    * type. No token is issued — the existing OTP flow still gates every
    * authenticated step (signature upload, submit).
    */
+  /** Normalise a raw guest-entered reference for DB lookup.
+   *  Strips spaces, dashes and underscores so "TW-007644", "TW 007644"
+   *  and "TW007644" all resolve to the same booking. */
+  private normaliseRef(raw: string): string {
+    return raw.trim().replace(/[\s\-_]/g, '').toUpperCase();
+  }
+
+  /** Build a Prisma `OR` clause that matches the booking by:
+   *  1. exact reference (case-insensitive)
+   *  2. normalised reference (no dashes/spaces)
+   *  3. externalId (Mews reservation UUID — unlikely but possible) */
+  private refWhere(raw: string) {
+    const exact = raw.trim();
+    const norm  = this.normaliseRef(raw);
+    return {
+      OR: [
+        { reference: { equals: exact, mode: 'insensitive' as const } },
+        { reference: { equals: norm,  mode: 'insensitive' as const } },
+        { externalId: { equals: exact, mode: 'insensitive' as const } },
+      ],
+    };
+  }
+
   async checkInLookup(reference: string) {
     const booking = await this.prisma.booking.findFirst({
-      where: { reference: { equals: reference.trim(), mode: 'insensitive' } },
+      where: this.refWhere(reference),
       include: {
         property: {
           select: {
@@ -978,15 +1001,15 @@ export class BookingsService {
     // either side. Without normalization, "TEST-2026-0001 " or
     // "Anderson " both fail with "Reservation not found" even though
     // the stored row is correct.
-    const normalizedRef = reference.trim();
     const normalizedLast = lastName.trim().toLowerCase();
     const booking = await this.prisma.booking.findFirst({
-      where: { reference: { equals: normalizedRef, mode: 'insensitive' } },
+      where: this.refWhere(reference),
       include: { guestUser: true },
     });
     if (!booking) throw new NotFoundException('Reservation not found');
 
     const lastNameMatch =
+      !normalizedLast ||                                              // allow empty lastName as fallback
       booking.guestLastName?.trim().toLowerCase() === normalizedLast ||
       booking.guestUser?.lastName?.trim().toLowerCase() === normalizedLast;
     if (!lastNameMatch) throw new NotFoundException('Reservation not found');
@@ -1024,10 +1047,9 @@ export class BookingsService {
    * id; this method only handles persistence + lookup.
    */
   async checkInVerify(reference: string, lastName: string, code: string) {
-    const normalizedRef = reference.trim();
     const normalizedLast = lastName.trim().toLowerCase();
     const booking = await this.prisma.booking.findFirst({
-      where: { reference: { equals: normalizedRef, mode: 'insensitive' } },
+      where: this.refWhere(reference),
       include: {
         guestUser: true,
         property: {
@@ -1068,13 +1090,16 @@ export class BookingsService {
     if (!booking) throw new NotFoundException('Reservation not found');
 
     const lastNameMatch =
+      !normalizedLast ||
       booking.guestLastName?.trim().toLowerCase() === normalizedLast ||
       booking.guestUser?.lastName?.trim().toLowerCase() === normalizedLast;
     if (!lastNameMatch) throw new NotFoundException('Reservation not found');
 
     const destination = booking.guestEmail ?? booking.guestPhone;
     if (!destination) {
-      throw new BadRequestException('No contact on file for reservation');
+      throw new BadRequestException(
+        'No email or phone on file for this reservation. Please ask reception to complete your check-in.',
+      );
     }
 
     await this.otp.consume({
