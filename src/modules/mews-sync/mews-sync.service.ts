@@ -275,6 +275,61 @@ export class MewsSyncService {
     return { propertyId, fetched: Reservations.length, upserted };
   }
 
+  /** Return whether the global Mews CLIENT_TOKEN env var is set. */
+  getConfig() {
+    return { configured: mewsConfigured() };
+  }
+
+  /**
+   * Return Mews connection status for one property (or all Mews-backed ones).
+   * Lightweight — just reads DB; does not call Mews.
+   */
+  async getStatus(propertyId?: string) {
+    const where = propertyId
+      ? { id: propertyId }
+      : { OR: [{ mewsAccessToken: { not: null } }, { mewsEnterpriseId: { not: null } }] };
+
+    const properties = await this.prisma.property.findMany({
+      where,
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        mewsEnterpriseId: true,
+        mewsAccessToken: true,
+      },
+    });
+
+    return properties.map((p) => ({
+      propertyId: p.id,
+      slug: p.slug,
+      name: p.name,
+      configured: !!this.resolveCreds(p),
+      hasEnterpriseId: !!p.mewsEnterpriseId,
+      hasAccessToken: !!p.mewsAccessToken,
+    }));
+  }
+
+  /**
+   * Persist Mews credentials on a property. Passing an empty string clears
+   * the field so it falls back to the shared env vars.
+   */
+  async saveCredentials(
+    propertyId: string,
+    accessToken: string,
+    enterpriseId?: string,
+  ) {
+    const property = await this.prisma.property.update({
+      where: { id: propertyId },
+      data: {
+        mewsAccessToken: accessToken || null,
+        mewsEnterpriseId: enterpriseId ?? null,
+      },
+      select: { id: true, slug: true, mewsEnterpriseId: true },
+    });
+    return { saved: true, propertyId: property.id };
+  }
+
   /**
    * Write a completed app check-in back to Mews so the client's PMS shows
    * the guest as arrived. Best-effort: never throws into the check-in flow.
