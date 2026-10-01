@@ -595,14 +595,11 @@ model Company {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  users           User[]
-  departments     Department[]
-  properties      Property[]
-  costs           Cost[]
-  revenueEntries  RevenueEntry[]
-  subscription    OperatorSubscription?
-  supportTickets  SupportTicket[]
-  suppliers       Supplier[]
+  users       User[]
+  departments Department[]
+  properties  Property[]
+  costs       Cost[]
+  revenueEntries RevenueEntry[]
 }
 
 model Department {
@@ -1056,27 +1053,20 @@ model Booking {
 }
 
 model BookingGuest {
-  id             String           @id @default(uuid())
-  bookingId      String
-  booking        Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  fullName       String
-  email          String?
-  phone          String?
-  isPrimary      Boolean          @default(false)
-  accessLevel    GuestAccessLevel @default(PROFILE_FULL)
+  id          String   @id @default(uuid())
+  bookingId   String
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  fullName    String
+  email       String?
+  phone       String?
+  isPrimary   Boolean  @default(false)
   documentNumber String?
-  dateOfBirth    DateTime?
-  hasKids        Boolean?
-  kidsCount      Int?
-  createdAt      DateTime         @default(now())
+  dateOfBirth DateTime?
+  hasKids     Boolean?
+  kidsCount   Int?
+  createdAt   DateTime @default(now())
 
   @@index([bookingId])
-}
-
-enum GuestAccessLevel {
-  PROFILE_FULL
-  RESERVATION_PARTIAL
-  CHAT_ONLY
 }
 
 model BookingPayment {
@@ -1810,6 +1800,27 @@ model AuditLog {
 }
 
 
+// ── Ads & Banners (managed from super-admin dashboard) ───────────────────────
+
+model Ad {
+  id           String    @id @default(uuid())
+  title        String
+  imageUrl     String
+  linkUrl      String?
+  description  String?
+  isActive     Boolean   @default(true)
+  order        Int       @default(0)
+  startDate    DateTime?
+  endDate      DateTime?
+  amountPaid   String?
+  paymentCycle String?
+  reminderDate DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([isActive, order])
+}
+
 // ── CMS / Website content (managed from admin dashboard) ────────────────────
 
 enum SiteContentType {
@@ -2120,107 +2131,4 @@ model Shift {
   updatedAt DateTime @updatedAt
 
   @@index([companyId])
-}
-
-// ============================================================================
-//  PLATFORM ADMIN — Subscriptions, Support, Suppliers
-// ============================================================================
-
-enum SubscriptionStatus {
-  TRIAL
-  ACTIVE
-  PAST_DUE
-  CANCELLED
-}
-
-enum TicketStatus {
-  OPEN
-  IN_PROGRESS
-  RESOLVED
-}
-
-model OperatorSubscription {
-  id             String             @id @default(uuid())
-  companyId      String             @unique
-  company        Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  plan           String             @default("Basic")
-  status         SubscriptionStatus @default(TRIAL)
-  amount         Float              @default(0)
-  billingCycle   String             @default("monthly")
-  nextBilling    DateTime?
-  enabledModules String[]           @default([])  // ["calendar","handbook","messaging","pricing","users","inventory","reports","integrations","website"]
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-}
-
-model SupportTicket {
-  id         String       @id @default(uuid())
-  companyId  String?
-  company    Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  subject    String
-  body       String
-  fromEmail  String
-  status     TicketStatus @default(OPEN)
-  reply      String?
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
-
-  @@index([companyId])
-  @@index([status])
-}
-
-model Supplier {
-  id          String   @id @default(uuid())
-  companyId   String
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  name        String
-  category    String?
-  contactName String?
-  email       String?
-  phone       String?
-  address     String?
-  notes       String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([companyId])
-}
-
-// ============================================================================
-//  PLATFORM ADS / BANNERS (Super Admin managed)
-// ============================================================================
-
-model Ad {
-  id          String    @id @default(uuid())
-  title       String
-  imageUrl    String
-  linkUrl     String?
-  description String?
-  isActive    Boolean   @default(true)
-  order       Int       @default(0)
-  startDate   DateTime?
-  endDate     DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@index([isActive, order])
-}
-
-// ============================================================================
-//  PLATFORM INVITES (Super Admin invites)
-// ============================================================================
-
-model PlatformInvite {
-  id          String    @id @default(uuid())
-  email       String
-  role        String    @default("ADMIN")  // SUPER_USER | ADMIN
-  accessPages String[]  @default([])       // e.g. ["operators","guests","analytics"]
-  token       String    @unique @default(uuid())
-  usedAt      DateTime?
-  expiresAt   DateTime
-  createdAt   DateTime  @default(now())
-
-  @@index([email])
-  @@index([token])
 }
