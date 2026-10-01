@@ -192,6 +192,30 @@ export class MewsSyncService {
       roomIdByNumber.set(room.number.trim(), room.id);
     }
 
+    // Diagnostic log — printed once per sync so we can verify the mapping.
+    {
+      const sampleReservations = [...resById.values()].slice(0, 3);
+      this.logger.log(
+        `[MewsSync] property=${propertyId} ` +
+          `reservations=${resById.size} spaces=${spaceById.size} ` +
+          `localRooms=${localRooms.length} ` +
+          `sampleSpaceNumbers=${[...spaceById.values()]
+            .slice(0, 10)
+            .map((s) => s.Number ?? "(no number)")
+            .join(",")} ` +
+          `sampleLocalRoomNumbers=${localRooms
+            .slice(0, 10)
+            .map((r) => r.number)
+            .join(",")} ` +
+          `sampleReservationAssignments=${sampleReservations
+            .map(
+              (r) =>
+                `${r.Number}:resourceId=${r.AssignedResourceId ?? "none"},spaceId=${r.AssignedSpaceId ?? "none"}`,
+            )
+            .join(" | ")}`,
+      );
+    }
+
     const resolveRoomId = (r: MewsReservation): string | null => {
       // Support both old (AssignedSpaceId) and new (AssignedResourceId) field.
       const spaceId = r.AssignedResourceId ?? r.AssignedSpaceId;
