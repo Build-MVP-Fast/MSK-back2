@@ -1278,8 +1278,10 @@ export class BookingsService {
     const guestPhone = dto.phone ?? booking.guestPhone ?? undefined;
     let guestUserIdToSet: string | null = booking.guestUserId;
     if (!guestUserIdToSet && guestEmail) {
+      // Only link APP-lane accounts — never link a PLATFORM/ADMIN user
+      // to a guest booking (loginWithCheckInCode would reject them anyway).
       const guestUser = await this.prisma.user.findFirst({
-        where: { email: guestEmail },
+        where: { email: guestEmail, accountKind: AccountKind.APP },
         select: { id: true },
       });
       if (guestUser) {
