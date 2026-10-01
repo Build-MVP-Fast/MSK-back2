@@ -12,6 +12,7 @@ import {
   mewsConfigured,
   reservationsGetAll,
   reservationStart,
+  spacesGetAll,
   type MewsReservation,
   type MewsCustomer,
   type MewsSpace,
@@ -273,6 +274,61 @@ export class MewsSyncService {
     }
 
     return { propertyId, fetched: Reservations.length, upserted };
+  }
+
+  /**
+   * Debug helper: returns raw Mews spaces + reservation room-assignment stats
+   * for a property so you can verify the mapping without trawling logs.
+   */
+  async debugRoomMapping(propertyId: string) {
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+    });
+    if (!property) throw new Error("Property not found");
+    const creds = this.resolveCreds(property);
+    if (!creds) throw new Error("No Mews credentials for this property");
+
+    const { accessToken, enterpriseId } = creds;
+    const now = Date.now();
+
+    // Fetch reservations (short window for speed)
+    const raw = await reservationsGetAll(accessToken, {
+      enterpriseId,
+      startUtc: new Date(now - 7 * 86400000).toISOString(),
+      endUtc: new Date(now + 30 * 86400000).toISOString(),
+    });
+
+    // Also try the dedicated spaces endpoint
+    const allSpaces = await spacesGetAll(accessToken, { enterpriseId });
+
+    const localRooms = await this.prisma.room.findMany({
+      where: { propertyId },
+      select: { id: true, number: true },
+    });
+
+    const spaceById = new Map(raw.Spaces.map((s) => [s.Id, s]));
+    const withRoom = raw.Reservations.filter(
+      (r) => r.AssignedSpaceId ?? r.AssignedResourceId,
+    );
+
+    return {
+      mewsSpacesFromReservationsExtent: raw.Spaces.length,
+      mewsSpacesFromDedicatedEndpoint: allSpaces.length,
+      sampleSpaces: [...allSpaces, ...raw.Spaces]
+        .slice(0, 10)
+        .map((s) => ({ id: s.Id, number: s.Number, name: s.Name })),
+      totalReservations: raw.Reservations.length,
+      reservationsWithAssignedRoom: withRoom.length,
+      sampleAssignments: withRoom.slice(0, 5).map((r) => ({
+        reservationId: r.Id,
+        assignedSpaceId: r.AssignedSpaceId ?? r.AssignedResourceId,
+        spaceName: spaceById.get(
+          (r.AssignedSpaceId ?? r.AssignedResourceId) as string,
+        )?.Number,
+      })),
+      localRoomsCount: localRooms.length,
+      sampleLocalRooms: localRooms.slice(0, 10).map((r) => r.number),
+    };
   }
 
   /** Return whether the global Mews CLIENT_TOKEN env var is set. */

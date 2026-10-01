@@ -78,8 +78,9 @@ async function mewsPost<T>(
 
 /**
  * Reservations colliding with a UTC window, with their customers and spaces.
- * Spaces are included so the sync can map AssignedSpaceId/AssignedResourceId
- * back to a local Room via the Space.Number → Room.number match.
+ * We request both Spaces (old API) and Resources (new API) so the same code
+ * works regardless of which Connector version the property's Mews is on.
+ * AssignedSpaceId / AssignedResourceId are also both handled on each reservation.
  */
 export async function reservationsGetAll(
   accessToken: string,
@@ -93,7 +94,9 @@ export async function reservationsGetAll(
     StartUtc: opts.startUtc,
     EndUtc: opts.endUtc,
     TimeFilter: "Colliding",
-    Extent: { Reservations: true, Customers: true, Spaces: true },
+    // Request both old (Spaces) and new (Resources) names — Mews ignores
+    // unknown extent keys so this is safe against either API version.
+    Extent: { Reservations: true, Customers: true, Spaces: true, Resources: true },
     Limitation: { Count: 1000 },
   };
   if (opts.enterpriseId) body.EnterpriseIds = [opts.enterpriseId];
@@ -101,12 +104,48 @@ export async function reservationsGetAll(
     Reservations?: MewsReservation[];
     Customers?: MewsCustomer[];
     Spaces?: MewsSpace[];
+    Resources?: MewsSpace[]; // new API — same shape, different key
   }>("/reservations/getAll", accessToken, body);
+
+  // Merge both keys: de-dup by Id in case both are returned.
+  const spacesById = new Map<string, MewsSpace>();
+  for (const s of [...(data.Spaces ?? []), ...(data.Resources ?? [])]) {
+    spacesById.set(s.Id, s);
+  }
+
   return {
     Reservations: data.Reservations ?? [],
     Customers: data.Customers ?? [],
-    Spaces: data.Spaces ?? [],
+    Spaces: [...spacesById.values()],
   };
+}
+
+/**
+ * Fetch all spaces (rooms) for a property — useful for diagnostics and for
+ * the initial room-provisioning flow. Uses the dedicated spaces/getAll endpoint
+ * which guarantees the full list regardless of the reservation window.
+ */
+export async function spacesGetAll(
+  accessToken: string,
+  opts: { enterpriseId?: string } = {},
+): Promise<MewsSpace[]> {
+  const body: Record<string, unknown> = {
+    Extent: { Spaces: true, Inactive: false },
+  };
+  if (opts.enterpriseId) body.EnterpriseIds = [opts.enterpriseId];
+  const data = await mewsPost<{ Spaces?: MewsSpace[]; Resources?: MewsSpace[] }>(
+    "/spaces/getAll",
+    accessToken,
+    body,
+  ).catch(() =>
+    // spaces/getAll may not exist on all Connector versions — fall back silently
+    ({ Spaces: [] as MewsSpace[], Resources: [] as MewsSpace[] }),
+  );
+  const byId = new Map<string, MewsSpace>();
+  for (const s of [...(data.Spaces ?? []), ...(data.Resources ?? [])]) {
+    byId.set(s.Id, s);
+  }
+  return [...byId.values()];
 }
 
 /**

@@ -28,6 +28,17 @@ export class MewsSyncController {
     return this.service.getConfig();
   }
 
+  /**
+   * Debug room-mapping for a property: returns raw Mews spaces, how many
+   * reservations have an assigned room, and local Room records — so you can
+   * verify the number-match without trawling logs.
+   * Usage: GET /mews-sync/debug-rooms?propertyId=<id>
+   */
+  @Get("debug-rooms")
+  debugRooms(@Query("propertyId") propertyId: string) {
+    return this.service.debugRoomMapping(propertyId);
+  }
+
   /** Manually trigger a mirror — all Mews-backed properties, or one. */
   @Post("run")
   run(@Body() body: { propertyId?: string }) {
