@@ -221,8 +221,11 @@ export class MewsSyncService {
       const spaceId = r.AssignedResourceId ?? r.AssignedSpaceId;
       if (!spaceId) return null;
       const space = spaceById.get(spaceId);
-      if (!space?.Number) return null;
-      return roomIdByNumber.get(space.Number.trim()) ?? null;
+      // Old Mews API uses space.Number; new Resources API uses space.Name.
+      // Fall back to Name so either version resolves correctly.
+      const roomKey = space?.Number?.trim() || space?.Name?.trim();
+      if (!roomKey) return null;
+      return roomIdByNumber.get(roomKey) ?? null;
     };
 
     let upserted = 0;
@@ -340,7 +343,7 @@ export class MewsSyncService {
       mewsSpacesFromDedicatedEndpoint: allSpaces.length,
       sampleSpaces: [...allSpaces, ...raw.Spaces]
         .slice(0, 10)
-        .map((s) => ({ id: s.Id, number: s.Number, name: s.Name })),
+        .map((s) => ({ id: s.Id, number: s.Number, name: s.Name, resolvedKey: s.Number?.trim() || s.Name?.trim() })),
       totalReservations: raw.Reservations.length,
       reservationsWithAssignedRoom: withRoom.length,
       sampleAssignments: withRoom.slice(0, 5).map((r) => ({
