@@ -82,20 +82,35 @@ export class InventoryService {
     },
     callerCompanyId?: string,
   ): Promise<EnrichedItem> {
-    // Mobile sends quantityOnHand + storageLocation, neither of which
-    // are columns on InventoryItem. Strip them, stash the location on
-    // metadata, and seed quantity via an initial RECEIVED movement.
-    const { quantityOnHand, storageLocation, metadata, name, ...rest } = dto;
+    // Strip all non-column fields the operator UI sends:
+    //   quantity / minStock / locationId come from the web frontend
+    //   quantityOnHand / storageLocation from the mobile app
+    // Treat `quantity` as the initial stock quantity if `quantityOnHand` is absent.
+    // Map `minStock` → `reorderLevel` (actual column name).
+    const {
+      quantityOnHand: _qoh,
+      storageLocation,
+      metadata,
+      name,
+      quantity,         // web frontend field — used as initial stock
+      minStock,         // web frontend field — maps to reorderLevel
+      locationId,       // web frontend field — stored in metadata
+      ...rest
+    } = dto as typeof dto & { quantity?: number; minStock?: number; locationId?: string };
+    const quantityOnHand = _qoh ?? quantity;
     const initialQty = Math.max(0, Number(quantityOnHand ?? 0) || 0);
     const meta = (metadata && typeof metadata === 'object' && !Array.isArray(metadata))
       ? (metadata as Record<string, unknown>)
       : {};
     if (storageLocation) meta.storageLocation = storageLocation;
 
+    if (locationId) meta.storageLocation = locationId;
+
     const item = await this.prisma.inventoryItem.create({
       data: {
         ...rest,
         name: name ?? 'New item',
+        ...(minStock !== undefined ? { reorderLevel: Number(minStock) } : {}),
         ...(callerCompanyId ? { companyId: callerCompanyId } : {}),
         ...(Object.keys(meta).length ? { metadata: meta as Prisma.InputJsonValue } : {}),
       },
