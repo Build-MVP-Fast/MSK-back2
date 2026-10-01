@@ -12,8 +12,8 @@ if [ -z "${DIRECT_URL:-}" ] && [ -n "${DATABASE_URL:-}" ]; then
   echo "DIRECT_URL unset — falling back to DATABASE_URL for migrate (set DIRECT_URL to Supabase direct host to avoid pooler limits)" >&2
 fi
 
-MAX_ATTEMPTS="${MIGRATE_MAX_ATTEMPTS:-6}"
-SLEEP_SECS="${MIGRATE_RETRY_SLEEP_SECS:-8}"
+MAX_ATTEMPTS="${MIGRATE_MAX_ATTEMPTS:-30}"
+SLEEP_SECS="${MIGRATE_RETRY_SLEEP_SECS:-15}"
 
 i=1
 while [ "$i" -le "$MAX_ATTEMPTS" ]; do
